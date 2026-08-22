@@ -164,6 +164,8 @@ button {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  flex: 1;
+  min-height: 0;
 }
 
 .task-card {
@@ -320,6 +322,15 @@ button {
   background: var(--accent-dim);
 }
 
+.rail-foot {
+  border-top: 1px solid var(--line);
+  padding: 8px;
+}
+
+.rail-settings {
+  width: 100%;
+}
+
 .terminal-wrap {
   display: flex;
   flex-direction: column;
@@ -327,6 +338,145 @@ button {
   min-height: 0;
   height: 100%;
   overflow: hidden;
+}
+
+.settings-page {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  background: var(--bg);
+}
+
+.settings-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 20px 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.settings-head h1 {
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+}
+
+.settings-tabs {
+  display: flex;
+  gap: 4px;
+}
+
+.settings-tabs button {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  padding: 6px 10px;
+  border-radius: 6px;
+}
+
+.settings-tabs button:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.settings-tabs button.active {
+  color: var(--accent);
+  background: #1c1813;
+}
+
+.settings-body {
+  overflow: auto;
+  padding: 18px 20px 28px;
+  display: grid;
+  gap: 14px;
+  max-width: 720px;
+}
+
+.settings-field {
+  display: grid;
+  gap: 6px;
+}
+
+.settings-field span {
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+
+.settings-field input,
+.settings-field select,
+.settings-field textarea,
+.settings-search {
+  width: 100%;
+  border: 1px solid var(--line);
+  background: var(--bg-raise);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+.settings-field textarea {
+  font-family: var(--mono);
+  font-size: 12px;
+  resize: vertical;
+}
+
+.settings-search {
+  max-width: 420px;
+}
+
+.settings-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.settings-error {
+  padding: 20px;
+  color: var(--danger);
+}
+
+.shortcut-group h2 {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+
+.shortcut-group ul {
+  list-style: none;
+  display: grid;
+  gap: 4px;
+}
+
+.shortcut-group li {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.shortcut-row {
+  flex: 1;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  text-align: left;
+  border: 1px solid transparent;
+  background: var(--bg-raise);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.shortcut-row:hover {
+  border-color: var(--line);
+  background: var(--bg-hover);
+}
+
+.shortcut-reset {
+  flex: 0 0 auto;
 }
 
 .split {

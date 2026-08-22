@@ -131,7 +131,8 @@ export function eventToChord(e: KeyboardEvent): Chord {
   }
 }
 
-export function chordsEqual(a: Chord, b: Chord): boolean {
+export function chordsEqual(a: Chord | null | undefined, b: Chord | null | undefined): boolean {
+  if (!a || !b) return a === b
   return (
     a.key === b.key && a.ctrl === b.ctrl && a.shift === b.shift && a.alt === b.alt && a.meta === b.meta
   )

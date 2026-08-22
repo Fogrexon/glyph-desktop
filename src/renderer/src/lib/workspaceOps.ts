@@ -31,18 +31,15 @@ export function applyWorkspaceAction(action: AgentUiAction): void {
       void refreshTasks(action.mode)
       return
     case 'openSettings':
-      ui.setPaletteView('settings')
+      ui.openSettings('general')
       return
     case 'openShortcuts':
-      ui.setPaletteView('shortcuts')
+      ui.openSettings('shortcuts')
       return
     case 'openTaskEditor':
       ui.setPaletteView('task-new')
       return
     case 'closePalette':
-      if (ui.paletteView === 'settings' || ui.paletteView === 'shortcuts' || ui.paletteView === 'task-new') {
-        return
-      }
       ui.setPaletteOpen(false)
       return
     case 'splitPane':

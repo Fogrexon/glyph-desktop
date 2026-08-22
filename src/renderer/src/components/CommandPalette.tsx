@@ -5,8 +5,6 @@ import type { CommandDef, TerminalSessionInfo } from '@shared/types'
 import { fuzzyScore } from '@renderer/lib/fuzzy'
 import { formatDeadline, relativeToGit, shortenPath } from '@renderer/lib/format'
 import { currentAgentContext, openGlyphSelf, resetAgentChat } from '@renderer/lib/workspaceOps'
-import { SettingsPalette } from './palette/SettingsPalette'
-import { ShortcutsPalette } from './palette/ShortcutsPalette'
 import { TaskNewPalette } from './palette/TaskNewPalette'
 import { ErrorBoundary } from './ErrorBoundary'
 import { useAgentChat } from '@renderer/stores/agentChat'
@@ -128,16 +126,6 @@ function PaletteDialog(): React.JSX.Element {
         {view === 'root' && (
           <ErrorBoundary compact label="パレット" resetKey="root">
             <RootPalette />
-          </ErrorBoundary>
-        )}
-        {view === 'shortcuts' && (
-          <ErrorBoundary compact label="ショートカット" resetKey="shortcuts">
-            <ShortcutsPalette onBack={() => setView('root')} />
-          </ErrorBoundary>
-        )}
-        {view === 'settings' && (
-          <ErrorBoundary compact label="設定" resetKey="settings">
-            <SettingsPalette onBack={() => setView('root')} />
           </ErrorBoundary>
         )}
         {view === 'task-new' && (
@@ -407,10 +395,10 @@ function RootPalette(): React.JSX.Element {
         return
       case 'settings.open':
       case 'provider.set-model':
-        setView('settings')
+        useUi.getState().openSettings('general')
         return
       case 'shortcuts.open':
-        setView('shortcuts')
+        useUi.getState().openSettings('shortcuts')
         return
       case 'chat.reset':
         resetAgentChat()

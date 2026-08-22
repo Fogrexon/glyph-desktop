@@ -26,7 +26,7 @@ export function runShortcutAction(action: ShortcutAction): void {
       ui.setPaletteOpen(false)
       return
     case 'settings.open':
-      ui.setPaletteView('settings')
+      ui.openSettings('general')
       return
     case 'workspace.exit':
       void window.glyph.window.exitWorkspace()

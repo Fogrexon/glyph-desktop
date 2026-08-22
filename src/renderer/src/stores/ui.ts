@@ -22,7 +22,9 @@ function persistSelectedTaskId(selectedTaskId: string | null): void {
   }
 }
 
-export type PaletteView = 'root' | 'shortcuts' | 'settings' | 'task-new'
+export type PaletteView = 'root' | 'task-new'
+export type WorkspaceSurface = 'task' | 'settings'
+export type SettingsSection = 'general' | 'shortcuts'
 
 export interface Toast {
   id: string
@@ -33,6 +35,8 @@ export interface Toast {
 interface UiState {
   paletteOpen: boolean
   paletteView: PaletteView
+  workspaceSurface: WorkspaceSurface
+  settingsSection: SettingsSection
   viewMode: TaskViewMode
   selectedTaskId: string | null
   agentNote: string | null
@@ -41,6 +45,8 @@ interface UiState {
   sessions: Record<string, TerminalSessionInfo>
   setPaletteOpen: (open: boolean) => void
   setPaletteView: (view: PaletteView) => void
+  openSettings: (section?: SettingsSection) => void
+  setSettingsSection: (section: SettingsSection) => void
   setViewMode: (mode: TaskViewMode) => void
   selectTask: (id: string | null) => void
   setAgentNote: (text: string | null) => void
@@ -55,6 +61,8 @@ function createUiStore() {
   return create<UiState>((set) => ({
     paletteOpen: false,
     paletteView: 'root',
+    workspaceSurface: 'task',
+    settingsSection: 'general',
     viewMode: 'now',
     selectedTaskId: loadSelectedTaskId(),
     agentNote: null,
@@ -64,10 +72,18 @@ function createUiStore() {
     setPaletteOpen: (paletteOpen) =>
       set(paletteOpen ? { paletteOpen: true } : { paletteOpen: false, paletteView: 'root' }),
     setPaletteView: (paletteView) => set({ paletteView, paletteOpen: true }),
+    openSettings: (section = 'general') =>
+      set({
+        workspaceSurface: 'settings',
+        settingsSection: section,
+        paletteOpen: false,
+        paletteView: 'root'
+      }),
+    setSettingsSection: (settingsSection) => set({ settingsSection }),
     setViewMode: (viewMode) => set({ viewMode }),
     selectTask: (selectedTaskId) => {
       persistSelectedTaskId(selectedTaskId)
-      set({ selectedTaskId })
+      set({ selectedTaskId, workspaceSurface: 'task' })
     },
     setAgentNote: (agentNote) => set({ agentNote }),
     setAgentBusy: (agentBusy) => set({ agentBusy }),
@@ -95,9 +111,9 @@ function createUiStore() {
   }))
 }
 
-const glyphWindow = window as Window & { __glyphUiStore?: ReturnType<typeof createUiStore> }
-export const useUi = glyphWindow.__glyphUiStore ?? createUiStore()
-glyphWindow.__glyphUiStore = useUi
+const glyphWindow = window as Window & { __glyphUiStore2?: ReturnType<typeof createUiStore> }
+export const useUi = glyphWindow.__glyphUiStore2 ?? createUiStore()
+glyphWindow.__glyphUiStore2 = useUi
 
 export function statusLabel(status: AgentStatus | undefined): string {
   switch (status) {

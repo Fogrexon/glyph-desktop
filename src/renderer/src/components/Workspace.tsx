@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { ErrorBoundary } from './ErrorBoundary'
 import { CommandPalette } from './CommandPalette'
+import { SettingsPage } from './SettingsPage'
 import { TaskRail } from './TaskRail'
 import { TerminalPane } from './TerminalPane'
 import { Toasts } from './Toasts'
@@ -16,6 +17,7 @@ import { refreshTasks } from '@renderer/stores/workspace'
 export function Workspace(): React.JSX.Element {
   const paletteOpen = useUi((s) => s.paletteOpen)
   const paletteView = useUi((s) => s.paletteView)
+  const workspaceSurface = useUi((s) => s.workspaceSurface)
   const viewMode = useUi((s) => s.viewMode)
   const pushToast = useUi((s) => s.pushToast)
   const upsert = useUi((s) => s.upsertSession)
@@ -99,9 +101,15 @@ export function Workspace(): React.JSX.Element {
         <ErrorBoundary compact label="タスク一覧">
           <TaskRail />
         </ErrorBoundary>
-        <ErrorBoundary compact label="ターミナル">
-          <TerminalPane />
-        </ErrorBoundary>
+        {workspaceSurface === 'settings' ? (
+          <ErrorBoundary compact label="設定">
+            <SettingsPage />
+          </ErrorBoundary>
+        ) : (
+          <ErrorBoundary compact label="ターミナル">
+            <TerminalPane />
+          </ErrorBoundary>
+        )}
       </div>
       <ErrorBoundary compact label="パレット" resetKey={`${paletteOpen}:${paletteView}`}>
         <CommandPalette />

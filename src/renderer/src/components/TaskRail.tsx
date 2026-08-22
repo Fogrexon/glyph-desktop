@@ -16,6 +16,8 @@ export function TaskRail(): React.JSX.Element {
   const select = useUi((s) => s.selectTask)
   const viewMode = useUi((s) => s.viewMode)
   const sessions = useUi((s) => s.sessions)
+  const surface = useUi((s) => s.workspaceSurface)
+  const openSettings = useUi((s) => s.openSettings)
   const focusPane = usePanes((s) => s.focusPane)
   const activePane = usePanes((s) => (selected ? (s.activePane[selected] ?? selected) : null))
 
@@ -49,7 +51,7 @@ export function TaskRail(): React.JSX.Element {
           return (
             <div
               key={task.id}
-              className={`task-card ${selected === task.id ? 'active' : ''}`}
+              className={`task-card ${surface === 'task' && selected === task.id ? 'active' : ''}`}
             >
               <button
                 type="button"
@@ -106,6 +108,18 @@ export function TaskRail(): React.JSX.Element {
             </div>
           )
         })}
+      </div>
+      <div className="rail-foot">
+        <button
+          type="button"
+          className={`task-card rail-settings ${surface === 'settings' ? 'active' : ''}`}
+          onClick={() => openSettings()}
+        >
+          <div className="title">設定</div>
+          <div className="meta">
+            <span>一般 · ショートカット</span>
+          </div>
+        </button>
       </div>
     </aside>
   )

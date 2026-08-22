@@ -76,7 +76,7 @@ export const COMMANDS: CommandDef[] = [
   {
     id: 'settings.open',
     title: '設定を開く',
-    subtitle: 'プロバイダ・モデル・MCP をパレットで変える',
+    subtitle: '設定タブを開く',
     aliases: ['set', 'config', 'preferences'],
     keywords: ['設定', 'settings', 'モデル', 'mcp', 'api'],
     group: 'app'
@@ -84,7 +84,7 @@ export const COMMANDS: CommandDef[] = [
   {
     id: 'shortcuts.open',
     title: 'ショートカット',
-    subtitle: '一覧を見て割り当てを変える',
+    subtitle: '設定タブで一覧と割り当てを変える',
     aliases: ['keymap', 'keys', 'shortcuts', 'hotkey'],
     keywords: ['ショートカット', 'キー', 'keymap', 'bind', 'hotkey'],
     group: 'app'
