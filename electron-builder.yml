@@ -1,0 +1,59 @@
+appId: app.glyph.desktop
+productName: Glyph
+directories:
+  buildResources: build
+files:
+  - '!**/.vscode/*'
+  - '!src/*'
+  - '!electron.vite.config.{js,ts,mjs,cjs}'
+  - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
+  - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
+  - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+  - '!.github/*'
+asarUnpack:
+  - resources/**
+  - '**/node-pty/**'
+  - '**/sql.js/**'
+extraResources:
+  - from: node_modules/sql.js/dist/sql-wasm.wasm
+    to: sql-wasm.wasm
+win:
+  executableName: Glyph
+  target:
+    - target: nsis
+      arch:
+        - x64
+    - target: portable
+      arch:
+        - x64
+nsis:
+  artifactName: Glyph-${version}-setup.${ext}
+  shortcutName: Glyph
+  uninstallDisplayName: Glyph
+  createDesktopShortcut: always
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+portable:
+  artifactName: Glyph-${version}-portable.${ext}
+mac:
+  entitlementsInherit: build/entitlements.mac.plist
+  notarize: false
+  target:
+    - target: dmg
+      arch:
+        - arm64
+    - target: zip
+      arch:
+        - arm64
+dmg:
+  artifactName: Glyph-${version}.${ext}
+linux:
+  target:
+    - AppImage
+  category: Utility
+appImage:
+  artifactName: Glyph-${version}.${ext}
+npmRebuild: true
+electronLanguages:
+  - en
+  - ja

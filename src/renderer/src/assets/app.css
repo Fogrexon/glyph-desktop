@@ -1,0 +1,679 @@
+:root {
+  --bg: #0c0d10;
+  --bg-raise: #14161c;
+  --bg-hover: #1b1e27;
+  --line: #2a2e38;
+  --text: #e8e6e1;
+  --muted: #8b909c;
+  --accent: #d4a574;
+  --accent-dim: #9a7548;
+  --danger: #e07070;
+  --ok: #7dba6a;
+  --warn: #e0b34d;
+  --idle: #6a7390;
+  --shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
+  --mono: ui-monospace, 'Cascadia Code', 'SF Mono', Menlo, Consolas, monospace;
+  --sans:
+    'Segoe UI', 'Hiragino Sans', 'Noto Sans JP', Inter, system-ui, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  scrollbar-width: thin;
+  scrollbar-color: #3a3f4c transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: #3a3f4c;
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: #5a6170;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 13px;
+  letter-spacing: 0.01em;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+.launcher {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  background:
+    radial-gradient(1200px 400px at 50% -10%, rgba(212, 165, 116, 0.12), transparent 55%),
+    var(--bg);
+}
+
+.launcher h1 {
+  font-size: 28px;
+  font-weight: 650;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.launcher p {
+  color: var(--muted);
+}
+
+.primary-btn {
+  border: 1px solid var(--accent-dim);
+  background: linear-gradient(180deg, #2a2218, #1a1612);
+  color: var(--accent);
+  padding: 12px 28px;
+  border-radius: 999px;
+  letter-spacing: 0.08em;
+}
+
+.primary-btn:hover {
+  background: #32281c;
+}
+
+.workspace {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  height: 100%;
+}
+
+.rail {
+  border-right: 1px solid var(--line);
+  background: var(--bg-raise);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.rail-head {
+  padding: 14px 14px 10px;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  border-bottom: 1px solid var(--line);
+}
+
+.rail-head strong {
+  letter-spacing: 0.14em;
+  font-size: 11px;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.hint {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.task-list {
+  overflow: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.task-row {
+  text-align: left;
+  border: 1px solid transparent;
+  background: transparent;
+  padding: 10px 10px 8px;
+  border-radius: 8px;
+  display: grid;
+  gap: 4px;
+}
+
+.task-row:hover {
+  background: var(--bg-hover);
+}
+
+.task-row.active {
+  border-color: var(--accent-dim);
+  background: #1c1813;
+}
+
+.task-row .title {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-weight: 600;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--idle);
+  flex: 0 0 auto;
+}
+
+.status-dot.running {
+  background: var(--ok);
+  box-shadow: 0 0 8px rgba(125, 186, 106, 0.6);
+}
+
+.status-dot.needs_human {
+  background: var(--warn);
+  box-shadow: 0 0 8px rgba(224, 179, 77, 0.7);
+}
+
+.status-dot.exited {
+  background: var(--danger);
+}
+
+.status-dot.idle {
+  background: var(--idle);
+}
+
+.meta {
+  color: var(--muted);
+  font-size: 11px;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.meta .overdue {
+  color: var(--danger);
+}
+
+.cwd {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.activities {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+.activity-chip {
+  font-family: var(--mono);
+  font-size: 10px;
+  line-height: 1.2;
+  letter-spacing: 0.02em;
+  color: var(--accent);
+  background: rgba(154, 117, 72, 0.18);
+  border: 1px solid rgba(212, 165, 116, 0.28);
+  border-radius: 4px;
+  padding: 2px 6px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terminal-wrap {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+.split {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+}
+
+.split-horizontal {
+  flex-direction: row;
+}
+
+.split-vertical {
+  flex-direction: column;
+}
+
+.split-child {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: clip;
+}
+
+.split-sash {
+  flex: 0 0 6px;
+  background: var(--line);
+  z-index: 2;
+}
+
+.split-sash-horizontal {
+  cursor: col-resize;
+}
+
+.split-sash-vertical {
+  cursor: row-resize;
+}
+
+body.sash-dragging,
+body.sash-dragging * {
+  cursor: col-resize;
+  user-select: none;
+}
+
+body.sash-dragging .split-sash-vertical,
+body.sash-dragging .split-sash-vertical * {
+  cursor: row-resize;
+}
+
+.term-leaf {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  overflow: clip;
+}
+
+.term-leaf.active .term-bar {
+  border-bottom-color: var(--accent-dim);
+}
+
+.term-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+  background: #101218;
+  flex: 0 0 auto;
+}
+
+.term-bar .path {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.term-bar .git {
+  color: var(--accent);
+  margin-right: 8px;
+}
+
+.term-host {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  padding: 8px;
+  position: relative;
+  /* clip (not hidden): IME composition must not create a scrollport that
+     Chromium then scrollIntoView's, which shoves the terminal left. */
+  overflow: clip;
+  overflow-anchor: none;
+}
+
+.term-host .xterm {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: clip;
+  overflow-anchor: none;
+}
+
+.term-host .xterm-viewport,
+.term-host .xterm-screen {
+  width: 100%;
+  height: 100%;
+}
+
+/* xterm defaults to overflow-y: scroll (always-on gutter on Windows). */
+.term-host .xterm .xterm-viewport {
+  overflow-y: auto;
+  background-color: #0e1016;
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+.term-host:hover .xterm .xterm-viewport,
+.term-host:focus-within .xterm .xterm-viewport {
+  scrollbar-color: #3a3f4c transparent;
+}
+
+.term-host .xterm .xterm-viewport::-webkit-scrollbar-thumb {
+  background: transparent;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.term-host:hover .xterm .xterm-viewport::-webkit-scrollbar-thumb,
+.term-host:focus-within .xterm .xterm-viewport::-webkit-scrollbar-thumb {
+  background: #3a3f4c;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.term-host:hover .xterm .xterm-viewport::-webkit-scrollbar-thumb:hover,
+.term-host:focus-within .xterm .xterm-viewport::-webkit-scrollbar-thumb:hover {
+  background: #5a6170;
+}
+
+/* Keep IME helpers out of flex min-content so composition text cannot
+   widen the pane. Paint the composition overlay at the cursor instead. */
+.term-host .xterm-helpers {
+  left: 0;
+  width: 0;
+  height: 0;
+  overflow: visible;
+}
+
+.term-host .xterm-helper-textarea {
+  position: absolute !important;
+  white-space: nowrap;
+}
+
+.term-host .composition-view {
+  position: absolute;
+  background: transparent;
+  color: var(--text);
+  pointer-events: none;
+}
+
+.empty-term {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+}
+
+body:has(.palette-overlay) .rail,
+body:has(.palette-overlay) .terminal-wrap {
+  pointer-events: none;
+}
+
+.palette-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(6, 7, 10, 0.55);
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 12vh;
+  z-index: 40;
+}
+
+.palette {
+  width: min(640px, 92vw);
+  max-height: calc(100vh - 18vh);
+  display: flex;
+  flex-direction: column;
+  background: #12141a;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.palette [cmdk-root] {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.palette [cmdk-input] {
+  width: 100%;
+  border: 0;
+  outline: none;
+  background: transparent;
+  padding: 16px 18px;
+  font-size: 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.palette [cmdk-list] {
+  /* Don't bind height to --cmdk-list-height: with global border-box,
+     padding is inside that height so content is ~14px too tall and a
+     phantom scrollbar appears even when everything fits. */
+  max-height: 36vh;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 6px 8px 8px;
+}
+
+.agent-chat {
+  max-height: 28vh;
+  overflow: auto;
+  padding: 10px 14px 8px;
+  display: grid;
+  gap: 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+.agent-turn {
+  font-size: 13px;
+  white-space: pre-wrap;
+  line-height: 1.45;
+}
+
+.agent-turn.user {
+  color: var(--accent);
+}
+
+.agent-turn.tool {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.agent-turn.streaming::after {
+  content: '▍';
+  animation: blink 1s step-end infinite;
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+.palette [cmdk-group-heading] {
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 8px 8px 4px;
+}
+
+.palette [cmdk-item] {
+  padding: 8px 10px;
+  border-radius: 8px;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+}
+
+.palette [cmdk-item][data-selected='true'] {
+  background: #2a2218;
+  color: var(--accent);
+}
+
+.palette [cmdk-empty] {
+  padding: 12px 16px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.item-sub {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.panel-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(6, 7, 10, 0.55);
+  z-index: 30;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 10vh;
+}
+
+.panel {
+  width: min(640px, 92vw);
+  background: var(--bg-raise);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  padding: 18px;
+  display: grid;
+  gap: 12px;
+  max-height: 80vh;
+  overflow: auto;
+}
+
+.panel h2 {
+  font-size: 16px;
+}
+
+label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+input[type='text'],
+input[type='password'],
+input[type='datetime-local'],
+textarea,
+select {
+  background: #0c0d10;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  outline: none;
+}
+
+textarea {
+  min-height: 72px;
+  resize: vertical;
+}
+
+.row-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.ghost {
+  background: transparent;
+  border: 1px solid var(--line);
+  padding: 8px 12px;
+  border-radius: 8px;
+  color: var(--muted);
+}
+
+.toasts {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 50;
+}
+
+.toast {
+  background: #1b1e27;
+  border: 1px solid var(--line);
+  padding: 10px 12px;
+  border-radius: 8px;
+  min-width: 240px;
+  max-width: 360px;
+  box-shadow: var(--shadow);
+}
+
+.toast.warn {
+  border-color: var(--warn);
+}
+
+.toast.ok {
+  border-color: var(--ok);
+}
+
+.agent-note {
+  padding: 10px 18px 14px;
+  color: var(--muted);
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+}
+
+.ms-list {
+  display: grid;
+  gap: 8px;
+}
+
+.ms-item {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr auto;
+  gap: 6px;
+  align-items: end;
+}
+
+kbd {
+  font-family: var(--mono);
+  font-size: 11px;
+  border: 1px solid var(--line);
+  padding: 1px 5px;
+  border-radius: 4px;
+  color: var(--muted);
+}
