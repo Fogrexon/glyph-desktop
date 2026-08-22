@@ -17,6 +17,10 @@ asarUnpack:
 extraResources:
   - from: node_modules/sql.js/dist/sql-wasm.wasm
     to: sql-wasm.wasm
+  - from: resources/tray-icon.png
+    to: tray-icon.png
+  - from: resources/icon.png
+    to: icon.png
 win:
   executableName: Glyph
   target:

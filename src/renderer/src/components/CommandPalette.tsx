@@ -409,8 +409,10 @@ function PaletteDialog(): React.JSX.Element {
                       >
                         <span>{task?.title ?? s.taskId}</span>
                         <span className="item-sub">
-                          {s.activity ? `${s.activity} · ` : ''}
-                          {statusLabel(s.status)}
+                          {(s.activities?.length
+                            ? s.activities.join(' · ')
+                            : s.activity) || statusLabel(s.status)}
+                          {s.activities?.length || s.activity ? ` · ${statusLabel(s.status)}` : ''}
                         </span>
                       </Command.Item>
                     )

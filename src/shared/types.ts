@@ -36,8 +36,10 @@ export interface TerminalSessionInfo {
   gitRoot: string | null
   lastCwd: string | null
   status: AgentStatus
-  /** いま／直近の作業を示す短い一語（claude / npm / git-status など） */
+  /** いま／直近のエージェントまたはコマンド名 */
   activity: string | null
+  /** タスク一覧に並べる短い作業ラベル（エージェント内 Tasks 優先） */
+  activities: string[]
   alive: boolean
 }
 

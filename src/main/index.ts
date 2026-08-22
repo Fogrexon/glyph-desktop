@@ -3,10 +3,17 @@ import { electronApp, optimizer } from '@electron-toolkit/utils'
 import { openDatabase, persistNow } from './db/client'
 import { persistPaneCwdsNow } from './pane-cwd'
 import { registerIpc } from './ipc'
-import { disposeAllSessions, setTerminalListeners, startIdleWatcher } from './terminals'
+import {
+  disposeAllSessions,
+  setTerminalListeners,
+  startIdleWatcher,
+  warmSession
+} from './terminals'
+import { createAppTray, destroyAppTray } from './tray'
 import { createLauncherWindow, focusExistingWindow, sendToWorkspace } from './windows'
-import { ensureGlyphSelfTask } from './tasks'
+import { ensureGlyphSelfTask, listTaskViews } from './tasks'
 import { Ipc } from '@shared/ipc'
+import { markAppQuitting } from './lifetime'
 
 const gotLock = app.requestSingleInstanceLock()
 if (!gotLock) {
@@ -15,6 +22,18 @@ if (!gotLock) {
   app.on('second-instance', () => {
     focusExistingWindow()
   })
+}
+
+/** Spawn PTYs for active tasks before the workspace opens. */
+async function warmTerminals(): Promise<void> {
+  const tasks = await listTaskViews('all')
+  for (const task of tasks) {
+    try {
+      warmSession(task.id)
+    } catch {
+      // ignore per-task spawn failures; workspace can retry via ensure
+    }
+  }
 }
 
 app.whenReady().then(async () => {
@@ -38,7 +57,9 @@ app.whenReady().then(async () => {
   })
   startIdleWatcher()
 
+  createAppTray()
   createLauncherWindow()
+  void warmTerminals()
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -50,15 +71,16 @@ app.whenReady().then(async () => {
 })
 
 app.on('before-quit', () => {
+  // Runs before window close events — allow close handlers to destroy windows.
+  markAppQuitting()
   persistNow()
   persistPaneCwdsNow()
   disposeAllSessions()
+  destroyAppTray()
 })
 
+// Stay resident in the tray; only 「完全に終了」 quits.
 app.on('window-all-closed', () => {
   persistNow()
   persistPaneCwdsNow()
-  if (process.platform !== 'darwin') {
-    app.quit()
-  }
 })

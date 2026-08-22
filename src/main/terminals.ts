@@ -4,7 +4,7 @@ import type { IPty } from 'node-pty'
 import * as nodePty from 'node-pty'
 import type { TerminalSessionInfo } from '@shared/types'
 import { findGitRoot } from './cwd'
-import { detectActivityFromOutput, shortActivityLabel } from './activity'
+import { labelFromProcessCommand, mergeActivitySnapshot, type ActivitySnapshot } from './activity'
 import { OscScanner } from './osc'
 import { cwdForPane, resolveShellLaunch } from './shell-hooks'
 import { detectStatus, type StatusSnapshot } from './status'
@@ -15,6 +15,8 @@ export type DataHandler = (paneId: string, data: string) => void
 export type StatusHandler = (info: TerminalSessionInfo) => void
 export type ExitHandler = (paneId: string, exitCode: number) => void
 
+const OUTPUT_BUFFER_MAX = 64_000
+
 interface Session {
   paneId: string
   taskId: string
@@ -24,8 +26,12 @@ interface Session {
   lastCwd: string | null
   scanner: OscScanner
   status: StatusSnapshot
-  activity: string | null
+  activity: ActivitySnapshot
   alive: boolean
+  /** Recent PTY output so a late-attached xterm can catch up. */
+  outputBuffer: string
+  /** True after backlog was flushed to a renderer once. */
+  backlogSent: boolean
 }
 
 const sessions = new Map<string, Session>()
@@ -59,7 +65,8 @@ function toInfo(session: Session): TerminalSessionInfo {
     gitRoot: session.gitRoot,
     lastCwd: session.lastCwd,
     status: session.alive ? session.status.status : 'exited',
-    activity: session.activity,
+    activity: session.activity.activity,
+    activities: session.activity.activities,
     alive: session.alive
   }
 }
@@ -98,21 +105,27 @@ function spawnPty(paneId: string): Session {
     lastCwd: launch.cwd || homedir(),
     scanner: new OscScanner(),
     status: { status: 'idle', lastOutputAt: Date.now() },
-    activity: null,
-    alive: true
+    activity: { activity: null, activities: [] },
+    alive: true,
+    outputBuffer: '',
+    backlogSent: false
   }
 
   pty.onData((data) => {
+    session.outputBuffer =
+      session.outputBuffer.length + data.length > OUTPUT_BUFFER_MAX
+        ? (session.outputBuffer + data).slice(-OUTPUT_BUFFER_MAX)
+        : session.outputBuffer + data
     const events = session.scanner.push(data)
     if (events.cwds.length > 0) {
       applyCwd(session, events.cwds[events.cwds.length - 1])
     }
-    if (events.commands.length > 0) {
-      const label = shortActivityLabel(events.commands[events.commands.length - 1])
-      if (label) session.activity = label
-    } else {
-      session.activity = detectActivityFromOutput(data, session.activity)
-    }
+    session.activity = mergeActivitySnapshot({
+      previous: session.activity,
+      chunk: data,
+      recentText: session.outputBuffer,
+      commands: events.commands
+    })
     session.status = detectStatus(data, session.status, Date.now(), session.alive)
     emitStatus(session)
     onData?.(session.paneId, data)
@@ -133,10 +146,25 @@ function spawnPty(paneId: string): Session {
 
 export function ensureSession(paneId: string): TerminalSessionInfo {
   const existing = sessions.get(paneId)
-  if (existing?.alive) return toInfo(existing)
+  if (existing?.alive) {
+    if (!existing.backlogSent) {
+      if (existing.outputBuffer) onData?.(paneId, existing.outputBuffer)
+      existing.backlogSent = true
+      existing.outputBuffer = ''
+    }
+    return toInfo(existing)
+  }
   if (existing && !existing.alive) {
     sessions.delete(paneId)
   }
+  return toInfo(spawnPty(paneId))
+}
+
+/** Spawn without marking backlog consumed — used at app startup. */
+export function warmSession(paneId: string): TerminalSessionInfo {
+  const existing = sessions.get(paneId)
+  if (existing?.alive) return toInfo(existing)
+  if (existing && !existing.alive) sessions.delete(paneId)
   return toInfo(spawnPty(paneId))
 }
 
@@ -230,13 +258,107 @@ export function startIdleWatcher(): void {
     for (const session of sessions.values()) {
       if (!session.alive) continue
       const next = detectStatus('', session.status, now, true)
-      if (next.status !== session.status.status) {
-        session.status = next
-        emitStatus(session)
+      let changed = next.status !== session.status.status
+      if (changed) session.status = next
+
+      const refreshed = mergeActivitySnapshot({
+        previous: session.activity,
+        chunk: '',
+        recentText: session.outputBuffer,
+        commands: []
+      })
+      if (
+        refreshed.activity !== session.activity.activity ||
+        refreshed.activities.join('\0') !== session.activity.activities.join('\0')
+      ) {
+        session.activity = refreshed
+        changed = true
       }
+
+      if (changed) emitStatus(session)
+
       void probePidCwd(session.pty.pid).then((cwd) => {
         if (cwd) applyCwd(session, cwd)
       })
+      void probeChildActivity(session.pty.pid).then((label) => {
+        if (!label) return
+        if (session.activity.activity === label) return
+        if (session.activity.activities.length > 0 && session.activity.activities[0] !== label) {
+          // エージェント Tasks があるときは上書きしない
+          if (session.activity.activity && session.activity.activity !== label) {
+            session.activity = { ...session.activity, activity: label }
+            emitStatus(session)
+          }
+          return
+        }
+        session.activity = {
+          activity: label,
+          activities:
+            session.activity.activities.length > 0 ? session.activity.activities : [label]
+        }
+        emitStatus(session)
+      })
     }
   }, 2000)
+}
+
+function probeChildActivity(pid: number): Promise<string | null> {
+  if (process.platform === 'win32') {
+    return new Promise((resolve) => {
+      const script = [
+        `$p=${pid}`,
+        '$rows=@()',
+        'function Walk($id){',
+        '  Get-CimInstance Win32_Process -Filter "ParentProcessId=$id" -ErrorAction SilentlyContinue | ForEach-Object {',
+        '    $rows += $_',
+        '    Walk $_.ProcessId',
+        '  }',
+        '}',
+        'Walk $p',
+        '($rows | ForEach-Object { "$($_.Name) $($_.CommandLine)" }) -join [char]10'
+      ].join('; ')
+      execFile(
+        'powershell.exe',
+        ['-NoProfile', '-Command', script],
+        { timeout: 2500, windowsHide: true },
+        (error, stdout) => {
+          if (error || !stdout) {
+            resolve(null)
+            return
+          }
+          resolve(pickAgentLabel(stdout))
+        }
+      )
+    })
+  }
+
+  return new Promise((resolve) => {
+    execFile(
+      'ps',
+      ['-o', 'pid=,command=', '--ppid', String(pid)],
+      { timeout: 1500 },
+      (error, stdout) => {
+        if (error || !stdout) {
+          resolve(null)
+          return
+        }
+        resolve(pickAgentLabel(stdout))
+      }
+    )
+  })
+}
+
+function pickAgentLabel(stdout: string): string | null {
+  const known = new Set(['claude', 'codex', 'gemini', 'aider', 'cursor', 'opencode', 'crush'])
+  for (const line of stdout.split(/\r?\n/)) {
+    const lower = line.toLowerCase()
+    if (lower.includes('claude')) return 'claude'
+    if (lower.includes('codex')) return 'codex'
+    if (lower.includes('gemini')) return 'gemini'
+    if (lower.includes('aider')) return 'aider'
+    if (lower.includes('opencode')) return 'opencode'
+    const label = labelFromProcessCommand(line)
+    if (label && known.has(label)) return label
+  }
+  return null
 }

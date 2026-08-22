@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain } from 'electron'
+import { BrowserWindow, ipcMain } from 'electron'
 import { Ipc } from '@shared/ipc'
 import type {
   AppSettings,
@@ -28,6 +28,7 @@ import {
   restartSession,
   writeSession
 } from './terminals'
+import { retreatToTray } from './tray'
 import { enterWorkspace, exitWorkspace, getLauncher, getWorkspace, minimizeApp } from './windows'
 
 export function registerIpc(): void {
@@ -47,7 +48,8 @@ export function registerIpc(): void {
     minimizeApp()
   })
   ipcMain.handle(Ipc.windowQuit, () => {
-    app.quit()
+    // Soft quit: tray resident. Full kill is tray →「完全に終了」only.
+    retreatToTray()
   })
 
   ipcMain.handle(Ipc.tasksList, async (_e, mode: TaskViewMode) => listTaskViews(mode))

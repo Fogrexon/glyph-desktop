@@ -44,10 +44,18 @@ export function taskActivities(
   const seen = new Set<string>()
   const out: string[] = []
   for (const session of sessionsForTask(sessions, taskId)) {
-    const label = session.activity?.trim()
-    if (!label || seen.has(label)) continue
-    seen.add(label)
-    out.push(label)
+    const labels =
+      session.activities && session.activities.length > 0
+        ? session.activities
+        : session.activity
+          ? [session.activity]
+          : []
+    for (const label of labels) {
+      const trimmed = label.trim()
+      if (!trimmed || seen.has(trimmed)) continue
+      seen.add(trimmed)
+      out.push(trimmed)
+    }
   }
   return out
 }

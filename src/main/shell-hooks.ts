@@ -103,9 +103,10 @@ _glyph_report_cwd
 `
 
 const POWERSHELL_HOOK = `
+$esc = [char]27
+
 function prompt {
   $cwd = (Get-Location).Path
-  $esc = [char]27
   $unix = $cwd -replace '\\\\','/'
   [Console]::Write("$esc]633;D$esc\\") | Out-Null
   [Console]::Write("$esc]7;file:///$unix$esc\\") | Out-Null
@@ -117,22 +118,26 @@ function prompt {
   "PS $shown> "
 }
 
-try {
-  Set-PSReadLineKeyHandler -Chord Enter -BriefDescription 'GlyphCommandReport' -ScriptBlock {
-    $line = $null
-    $cursor = $null
-    [Microsoft.PowerShell.PSConsoleReadLine]::GetBufferState([ref]$line, [ref]$cursor)
-    if ($line -and $line.Trim().Length -gt 0) {
-      $esc = [char]27
-      $safe = ($line -replace [char]27, '' -replace ';', ' ')
-      [Console]::Write("$esc]633;E;$safe$esc\\") | Out-Null
-      [Console]::Write("$esc]633;C$esc\\") | Out-Null
+function Register-GlyphCommandHook {
+  try {
+    Import-Module PSReadLine -ErrorAction Stop
+    Set-PSReadLineKeyHandler -Chord Enter -BriefDescription 'GlyphCommandReport' -ScriptBlock {
+      $line = $null
+      $cursor = $null
+      [Microsoft.PowerShell.PSConsoleReadLine]::GetBufferState([ref]$line, [ref]$cursor)
+      if ($line -and $line.Trim().Length -gt 0) {
+        $safe = ($line -replace [char]27, '' -replace ';', ' ')
+        [Console]::Write("$esc]633;E;$safe$esc\\") | Out-Null
+        [Console]::Write("$esc]633;C$esc\\") | Out-Null
+      }
+      [Microsoft.PowerShell.PSConsoleReadLine]::AcceptLine()
     }
-    [Microsoft.PowerShell.PSConsoleReadLine]::AcceptLine()
+  } catch {
+    # PSReadLine が無い / 未初期化
   }
-} catch {
-  # PSReadLine が無い環境ではコマンド報告なし
 }
+
+Register-GlyphCommandHook
 `
 
 export function resolveShellLaunch(cwd = homedir()): ShellLaunch {
@@ -146,9 +151,10 @@ export function resolveShellLaunch(cwd = homedir()): ShellLaunch {
     const file = process.env.GLYPH_SHELL || 'powershell.exe'
     const hook = join(hookDir(), 'prompt.ps1')
     writeFileSync(hook, POWERSHELL_HOOK, 'utf8')
+    // -File だと対話初期化が弱いので -Command でドットソースしてから対話継続
     return {
       file,
-      args: ['-NoLogo', '-NoExit', '-File', hook],
+      args: ['-NoLogo', '-NoExit', '-Command', `& { . '${hook.replace(/'/g, "''")}' }`],
       env,
       cwd
     }

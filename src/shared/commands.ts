@@ -116,24 +116,25 @@ export const COMMANDS: CommandDef[] = [
   {
     id: 'workspace.exit-fullscreen',
     title: 'ワークスペースを閉じる',
-    subtitle: 'ランチャーに戻る',
+    subtitle: 'ランチャーに戻る（ターミナルは維持）',
     aliases: ['exit', 'leave'],
     keywords: ['終了', 'フルスクリーン', '戻る', 'launcher'],
     group: 'app'
   },
   {
     id: 'app.minimize',
-    title: '最小化',
-    subtitle: '終了せずタスクバーへ退避（セッションは維持）',
+    title: 'トレイに退避',
+    subtitle: 'ウィンドウを隠す。ターミナルはバックグラウンドで継続',
     aliases: ['min', 'minimize', 'hide'],
-    keywords: ['最小化', '隠す', '退避', 'minimize', 'hide'],
+    keywords: ['最小化', '隠す', '退避', 'トレイ', 'minimize', 'hide'],
     group: 'app'
   },
   {
     id: 'app.quit',
-    title: 'Glyph を終了',
-    aliases: ['quit', 'q'],
-    keywords: ['終了', 'quit', 'exit'],
+    title: 'トレイに退避',
+    subtitle: '完全終了ではない。破棄はトレイ右クリック「完全に終了」',
+    aliases: ['quit', 'q', 'close'],
+    keywords: ['終了', 'quit', 'exit', 'トレイ'],
     group: 'app'
   }
 ]

@@ -32,7 +32,7 @@ export const SHORTCUT_DEFS: ShortcutDef[] = [
   { action: 'palette.toggle', label: 'コマンドパレット', group: 'app' },
   { action: 'settings.open', label: '設定を開く', group: 'app' },
   { action: 'workspace.exit', label: 'ワークスペースを閉じる', group: 'app' },
-  { action: 'app.minimize', label: '最小化', group: 'app' },
+  { action: 'app.minimize', label: 'トレイに退避', group: 'app' },
   { action: 'term.splitRight', label: '右に分割', group: 'term' },
   { action: 'term.splitDown', label: '下に分割', group: 'term' },
   { action: 'term.closePane', label: 'ペインを閉じる', group: 'term' },

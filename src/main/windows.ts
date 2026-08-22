@@ -1,6 +1,7 @@
 import { BrowserWindow, screen, shell } from 'electron'
 import { join } from 'path'
 import { is } from '@electron-toolkit/utils'
+import { isAppQuitting } from './lifetime'
 
 let launcher: BrowserWindow | null = null
 let workspace: BrowserWindow | null = null
@@ -15,6 +16,14 @@ function load(win: BrowserWindow, hash: 'launcher' | 'workspace'): void {
     return
   }
   void win.loadFile(join(__dirname, '../renderer/index.html'), { hash })
+}
+
+function guardClose(win: BrowserWindow): void {
+  win.on('close', (event) => {
+    if (isAppQuitting()) return
+    event.preventDefault()
+    hideToTray()
+  })
 }
 
 export function getLauncher(): BrowserWindow | null {
@@ -53,6 +62,7 @@ export function createLauncherWindow(): BrowserWindow {
     void shell.openExternal(details.url)
     return { action: 'deny' }
   })
+  guardClose(launcher)
   launcher.on('closed', () => {
     launcher = null
   })
@@ -73,7 +83,7 @@ export function enterWorkspace(): BrowserWindow {
     applyExclusive(workspace)
     workspace.show()
     workspace.focus()
-    launcher?.hide()
+    if (launcher && !launcher.isDestroyed()) launcher.hide()
     return workspace
   }
 
@@ -109,15 +119,13 @@ export function enterWorkspace(): BrowserWindow {
     void shell.openExternal(details.url)
     return { action: 'deny' }
   })
+  guardClose(workspace)
   workspace.on('closed', () => {
     workspace = null
-    if (launcher && !launcher.isDestroyed()) {
-      launcher.show()
-    }
   })
 
   load(workspace, 'workspace')
-  launcher?.hide()
+  if (launcher && !launcher.isDestroyed()) launcher.hide()
   return workspace
 }
 
@@ -141,34 +149,44 @@ function releaseExclusive(win: BrowserWindow): void {
   win.setVisibleOnAllWorkspaces(false)
 }
 
-/** 終了せずに退避。ワークスペースのセッションはそのまま残す。 */
-export function minimizeApp(): void {
-  const win =
-    workspace && !workspace.isDestroyed()
-      ? workspace
-      : launcher && !launcher.isDestroyed()
-        ? launcher
-        : BrowserWindow.getFocusedWindow()
-  if (!win || win.isDestroyed()) return
-
-  if (workspace && !workspace.isDestroyed() && win === workspace) {
+/** Hide every window; PTYs and the workspace BrowserWindow stay alive. */
+export function hideToTray(): void {
+  if (workspace && !workspace.isDestroyed()) {
     releaseExclusive(workspace)
+    workspace.hide()
   }
-  win.minimize()
+  if (launcher && !launcher.isDestroyed()) {
+    launcher.hide()
+  }
 }
 
+/** Tray / second-instance: always land on the launcher, keep terminals. */
+export function showLauncher(): void {
+  if (workspace && !workspace.isDestroyed() && workspace.isVisible()) {
+    releaseExclusive(workspace)
+    workspace.hide()
+  }
+  if (launcher && !launcher.isDestroyed()) {
+    if (launcher.isMinimized()) launcher.restore()
+    launcher.show()
+    launcher.focus()
+    return
+  }
+  createLauncherWindow()
+}
+
+/** Leave fullscreen workspace → launcher. Do not kill PTYs or destroy the window. */
 export function exitWorkspace(): void {
   if (workspace && !workspace.isDestroyed()) {
     releaseExclusive(workspace)
-    workspace.close()
+    workspace.hide()
   }
-  workspace = null
-  if (launcher && !launcher.isDestroyed()) {
-    launcher.show()
-    launcher.focus()
-  } else {
-    createLauncherWindow()
-  }
+  showLauncher()
+}
+
+/** Soft retreat used by the minimize shortcut — same as tray hide. */
+export function minimizeApp(): void {
+  hideToTray()
 }
 
 export function sendToWorkspace(channel: string, ...args: unknown[]): void {
@@ -178,20 +196,5 @@ export function sendToWorkspace(channel: string, ...args: unknown[]): void {
 }
 
 export function focusExistingWindow(): void {
-  const win =
-    workspace && !workspace.isDestroyed()
-      ? workspace
-      : launcher && !launcher.isDestroyed()
-        ? launcher
-        : null
-  if (!win) {
-    createLauncherWindow()
-    return
-  }
-  if (win.isMinimized()) win.restore()
-  win.show()
-  win.focus()
-  if (workspace && !workspace.isDestroyed() && win === workspace) {
-    applyExclusive(workspace)
-  }
+  showLauncher()
 }

@@ -51,7 +51,7 @@ export function TaskRail(): React.JSX.Element {
                 <span>{statusLabel(status)}</span>
               </div>
               {activities.length > 0 && (
-                <div className="activities" aria-label="ターミナルの作業">
+                <div className="activities" aria-label="エージェントの作業">
                   {activities.map((label) => (
                     <span key={label} className="activity-chip">
                       {label}
