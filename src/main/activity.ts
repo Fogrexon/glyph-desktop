@@ -1,11 +1,12 @@
 /**
  * ターミナル内コーディングエージェントの「いまの作業」を
- * タスク一覧用の短いラベル列に落とす。
+ * ペインごとのタイトルと作業リストに落とす。
  *
  * 優先度:
  * 1. エージェントが表示する Tasks / Todo 行（Warp / Claude Code 風）
- * 2. ~/.claude/todos の in_progress / pending
- * 3. 実行コマンド・エージェント名
+ * 2. 主ペインのみ ~/.claude/todos の in_progress / pending
+ * 3. 直近バッファのユーザー指示・ツール呼び出し・ファイル操作
+ * 4. 実行コマンド・エージェント名
  */
 
 import { homedir } from 'os'
@@ -67,32 +68,6 @@ const BIN_ALIASES: Record<string, string> = {
   pipenv: 'pip'
 }
 
-const STOP = new Set([
-  'the',
-  'a',
-  'an',
-  'to',
-  'for',
-  'of',
-  'in',
-  'on',
-  'and',
-  'or',
-  'with',
-  'from',
-  'into',
-  'via',
-  'by',
-  'as',
-  'is',
-  'be',
-  'all',
-  'this',
-  'that',
-  'every',
-  'each'
-])
-
 /** チェック／進捗つきのタスク行（Warp ●◌✓、Claude ☐☑、[ ] など） */
 const TASK_LINE_RE =
   /^\s*(?:≡\s*tasks\s*)?(?:[◌●○☑☐✓✔✘✗✕▫▪◦‧]|\[(?: |x|X|~|-)\])\s+(.+?)\s*$/gim
@@ -100,11 +75,51 @@ const TASK_LINE_RE =
 const IN_PROGRESS_GLYPH = /[●]|\[~\]|in[_\s-]?progress/i
 const DONE_GLYPH = /[✓✔☑]|\[(?:x|X)\]|completed|done/i
 
+const TOOL_NAMES =
+  'Read|Write|Edit|Update|Bash|Grep|Glob|Search|Shell|Task|WebFetch|WebSearch|ApplyPatch|NotebookEdit|Delete|read_file|write_file|edit_file|apply_patch'
+
+const TOOL_LINE_RE = new RegExp(
+  `^\\s*(?:[⏺✦◆▶►•●]\\s*)?(?:Called?\\s+)?(${TOOL_NAMES})\\s*\\((.+)\\)\\s*$`,
+  'i'
+)
+
+const BARE_TOOL_RE = new RegExp(`^\\s*[⏺✦◆▶►•]\\s+(${TOOL_NAMES})\\s+(.+)$`, 'i')
+
+const FILE_OP_RE =
+  /^\s*(?:Modified|Writing|Wrote|Editing|Edited|Created|Deleted|Reading|Updating|Updated)\s+(.+?\.\w+)\s*$/i
+
+const GIT_DIFF_RE = /^\s*\+\+\+\s+b\/(.+)$/
+
+const JP_OP_RE = /^\s*(?:編集|更新|作成|削除|実行|検索|読み取り)[:：]\s*(.+)$/
+
+const TRIVIAL_CMD =
+  /^(cd|ls|ll|la|pwd|clear|cls|exit|true|false|history|date|whoami|echo)\b/i
+
+const WEAK_TITLE =
+  /^(claude|codex|gemini|aider|cursor|opencode|crush|agent|npm|npx|node|python|zsh|bash|fish|sh)$/i
+
+const SKIP_LINE = /esc to interrupt|ctrl\+c|press ctrl|^\s*[│├└⎿]/i
+
+export interface ExtractedWork {
+  active: string[]
+  pending: string[]
+}
+
 export interface ActivitySnapshot {
-  /** エージェント名や直近コマンド */
+  /** エージェント名や直近コマンド（短い識別子） */
   activity: string | null
-  /** タスク一覧に並べる短い作業ラベル（エージェント内 Tasks 優先） */
-  activities: string[]
+  /** このペインが今やっていることのタイトル */
+  workTitle: string | null
+  /** このペインの作業リスト（エージェント Tasks 優先） */
+  workItems: string[]
+  lastCommand: string | null
+}
+
+export const EMPTY_ACTIVITY: ActivitySnapshot = {
+  activity: null,
+  workTitle: null,
+  workItems: [],
+  lastCommand: null
 }
 
 export function shortActivityLabel(command: string | null | undefined): string | null {
@@ -155,13 +170,12 @@ export function detectAgentFromOutput(chunk: string, previous: string | null): s
   return previous
 }
 
-/** ANSI を除いたテキストからエージェント Tasks を抽出 */
-export function extractAgentTasksFromText(raw: string): string[] {
+/** ANSI を除いたテキストからエージェント Tasks を抽出（全文。タグ化しない） */
+export function extractAgentTasksFromText(raw: string): ExtractedWork {
   const text = stripAnsi(raw)
   const pending: string[] = []
   const active: string[] = []
 
-  // 「Tasks」見出し直後のブロックを優先して走査
   const blocks = text.split(/\n(?=.*?tasks\b)/i)
   const scanTargets = blocks.length > 1 ? blocks.slice(-3) : [text]
 
@@ -170,26 +184,46 @@ export function extractAgentTasksFromText(raw: string): string[] {
     let match: RegExpExecArray | null
     while ((match = TASK_LINE_RE.exec(block)) !== null) {
       const line = match[0]
-      const body = match[1]?.trim()
+      const body = phrase(match[1], 72)
       if (!body) continue
       if (/^tasks?\b/i.test(body)) continue
       if (DONE_GLYPH.test(line) && !IN_PROGRESS_GLYPH.test(line)) continue
-      const label = oneWord(body)
-      if (!label) continue
       if (IN_PROGRESS_GLYPH.test(line)) {
-        if (!active.includes(label)) active.push(label)
-      } else if (!pending.includes(label) && !active.includes(label)) {
-        pending.push(label)
+        if (!active.includes(body)) active.push(body)
+      } else if (!pending.includes(body) && !active.includes(body)) {
+        pending.push(body)
       }
     }
   }
 
-  return [...active, ...pending].slice(0, 6)
+  return {
+    active: active.slice(0, 8),
+    pending: pending.slice(0, 8)
+  }
 }
 
-export function loadClaudeTodoLabels(limit = 6): string[] {
+/** 直近出力からユーザー指示・ツール・ファイル操作を新しい順で取る */
+export function extractRecentWork(raw: string, limit = 8): string[] {
+  const text = tailText(stripAnsi(raw), 16_000)
+  const lines = text.split(/\r?\n/)
+  const found: string[] = []
+  const seen = new Set<string>()
+
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const item = classifyWorkLine(lines[i] ?? '')
+    if (!item || seen.has(item)) continue
+    seen.add(item)
+    found.push(item)
+    if (found.length >= limit) break
+  }
+
+  return found
+}
+
+export function loadClaudeTodos(limit = 8): ExtractedWork {
+  const empty: ExtractedWork = { active: [], pending: [] }
   const dir = join(homedir(), '.claude', 'todos')
-  if (!existsSync(dir)) return []
+  if (!existsSync(dir)) return empty
 
   let files: string[] = []
   try {
@@ -205,7 +239,7 @@ export function loadClaudeTodoLabels(limit = 6): string[] {
       })
       .slice(0, 8)
   } catch {
-    return []
+    return empty
   }
 
   const active: string[] = []
@@ -224,13 +258,12 @@ export function loadClaudeTodoLabels(limit = 6): string[] {
         const row = item as { content?: unknown; activeForm?: unknown; status?: unknown }
         const status = String(row.status || '').toLowerCase()
         if (status === 'completed' || status === 'cancelled' || status === 'canceled') continue
-        const text = String(row.activeForm || row.content || '').trim()
-        const label = oneWord(text)
-        if (!label) continue
+        const text = phrase(String(row.activeForm || row.content || ''), 72)
+        if (!text) continue
         if (status === 'in_progress' || status === 'in-progress') {
-          if (!active.includes(label)) active.push(label)
-        } else if (!pending.includes(label) && !active.includes(label)) {
-          pending.push(label)
+          if (!active.includes(text)) active.push(text)
+        } else if (!pending.includes(text) && !active.includes(text)) {
+          pending.push(text)
         }
       }
     } catch {
@@ -238,7 +271,10 @@ export function loadClaudeTodoLabels(limit = 6): string[] {
     }
   }
 
-  return [...active, ...pending].slice(0, limit)
+  return {
+    active: active.slice(0, limit),
+    pending: pending.slice(0, limit)
+  }
 }
 
 export function mergeActivitySnapshot(input: {
@@ -249,23 +285,42 @@ export function mergeActivitySnapshot(input: {
   preferClaudeFiles?: boolean
 }): ActivitySnapshot {
   let activity = input.previous.activity
+  const lastCommand =
+    input.commands.length > 0
+      ? input.commands[input.commands.length - 1]
+      : input.previous.lastCommand
 
-  if (input.commands.length > 0) {
-    const label = shortActivityLabel(input.commands[input.commands.length - 1])
+  if (lastCommand) {
+    const label = shortActivityLabel(lastCommand)
     if (label) activity = label
   }
   activity = detectAgentFromOutput(input.chunk, activity)
 
-  const fromOutput = extractAgentTasksFromText(input.recentText)
-  const fromFiles =
-    input.preferClaudeFiles || activity === 'claude' || /claude/i.test(input.recentText)
-      ? loadClaudeTodoLabels()
-      : []
+  let extracted = extractAgentTasksFromText(input.recentText)
+  if (
+    extracted.active.length + extracted.pending.length === 0 &&
+    input.preferClaudeFiles &&
+    (activity === 'claude' || /claude/i.test(input.recentText))
+  ) {
+    extracted = loadClaudeTodos()
+  }
 
-  const tasks = unique([...(fromOutput.length > 0 ? fromOutput : fromFiles)])
-  const activities = tasks.length > 0 ? tasks : activity ? [activity] : []
+  const recent = extractRecentWork(input.recentText)
+  const todoItems = unique([...extracted.active, ...extracted.pending]).slice(0, 8)
+  const commandTitle = nontrivialCommand(lastCommand)
 
-  return { activity, activities }
+  const workItems = todoItems.length > 0 ? todoItems : recent
+  const workTitle =
+    phrase(
+      extracted.active[0] ||
+        extracted.pending[0] ||
+        recent[0] ||
+        commandTitle ||
+        (activity && !WEAK_TITLE.test(activity) ? activity : null),
+      48
+    ) || activity
+
+  return { activity, workTitle, workItems, lastCommand }
 }
 
 export function labelFromProcessCommand(commandLine: string | null | undefined): string | null {
@@ -273,34 +328,106 @@ export function labelFromProcessCommand(commandLine: string | null | undefined):
   return shortActivityLabel(commandLine)
 }
 
-function oneWord(text: string): string | null {
+function nontrivialCommand(command: string | null | undefined): string | null {
+  const described = describeCommand(command)
+  if (!described || TRIVIAL_CMD.test(described) || WEAK_TITLE.test(described)) return null
+  return described
+}
+
+function classifyWorkLine(raw: string): string | null {
+  const line = raw.replace(/\s+$/, '')
+  if (!line || SKIP_LINE.test(line)) return null
+
+  const prompt = asUserPrompt(line)
+  if (prompt) return prompt
+
+  const tool = line.match(TOOL_LINE_RE)
+  if (tool) return formatTool(tool[1], tool[2])
+
+  const bare = line.match(BARE_TOOL_RE)
+  if (bare) return formatTool(bare[1], bare[2])
+
+  const exec = line.match(/^\s*(?:[⏺✦◆]\s+)?exec\s+(.+)$/i)
+  if (exec) return phrase(exec[1], 72)
+
+  const bracket = line.match(/^\s*\[(?:Tool|tool):\s*(\w+)\]\s+(.+)$/)
+  if (bracket) return formatTool(bracket[1], bracket[2])
+
+  const fileOp = line.match(FILE_OP_RE)
+  if (fileOp) return phrase(`${shortPath(fileOp[1])}`, 72)
+
+  const git = line.match(GIT_DIFF_RE)
+  if (git) return phrase(shortPath(git[1]), 72)
+
+  const jp = line.match(JP_OP_RE)
+  if (jp) return phrase(jp[1], 72)
+
+  return null
+}
+
+function asUserPrompt(line: string): string | null {
+  const match = line.match(/^\s*(?:[❯➤]|>(?=\s+\S+\s+\S))\s+(.+)$/)
+  if (!match) return null
+  const text = match[1].trim()
+  if (text.length < 12) return null
+  if (TRIVIAL_CMD.test(text)) return null
+  if (/^[\w./-]+\s*(?:[<>|&]|$)/.test(text) && text.length < 40) return null
+  return phrase(text, 72)
+}
+
+function formatTool(tool: string, rawArg: string): string | null {
+  let arg = rawArg.trim().replace(/^["']|["']$/g, '')
+  const named = arg.match(
+    /(?:path|file|command|pattern|query|url|target)\s*[:=]\s*["']?([^"',]+)/i
+  )
+  if (named) arg = named[1].trim()
+  arg = arg.replace(/["']$/, '').trim()
+  if (!arg) return null
+
+  const name = canonicalTool(tool)
+  if (name === 'Bash' || name === 'Shell') return phrase(arg, 72)
+  return phrase(`${name} ${shortPath(arg)}`, 72)
+}
+
+function canonicalTool(tool: string): string {
+  const lower = tool.toLowerCase()
+  if (lower === 'read_file') return 'Read'
+  if (lower === 'write_file') return 'Write'
+  if (lower === 'edit_file' || lower === 'update') return 'Edit'
+  if (lower === 'apply_patch') return 'ApplyPatch'
+  if (lower === 'shell') return 'Bash'
+  return tool[0].toUpperCase() + tool.slice(1)
+}
+
+function shortPath(input: string): string {
+  const cleaned = input.replace(/^file:\/\//, '').replace(/\\/g, '/').replace(/\/+$/, '')
+  const parts = cleaned.split('/').filter(Boolean)
+  if (parts.length <= 2) return cleaned
+  return parts.slice(-2).join('/')
+}
+
+function tailText(text: string, maxChars: number): string {
+  return text.length <= maxChars ? text : text.slice(-maxChars)
+}
+
+function describeCommand(command: string | null | undefined): string | null {
+  if (!command) return null
+  let line = command.trim()
+  if (!line) return null
+  line = line.replace(/^(?:\w+=\S+\s+)+/, '')
+  line = line.split(/\s*(?:&&|\|\||;)\s*/)[0]?.trim() ?? line
+  return phrase(line, 48)
+}
+
+function phrase(text: string | null | undefined, max: number): string | null {
+  if (!text) return null
   const cleaned = text
     .replace(/[\u0000-\u001f]/g, ' ')
-    .replace(/\(.*?\)/g, ' ')
-    .replace(/…/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
-  if (!cleaned) return null
-
-  if (/[/\\]/.test(cleaned) || /\.\w{1,5}\b/.test(cleaned)) {
-    const base = cleaned.split(/[/\\]/).pop() || cleaned
-    return clip(base.replace(/\.\w+$/, ''))
-  }
-
-  const words = cleaned
-    .split(' ')
-    .map((w) => w.replace(/^[^A-Za-z0-9\u3040-\u30ff\u4e00-\u9faf]+|[^A-Za-z0-9\u3040-\u30ff\u4e00-\u9faf]+$/g, ''))
-    .filter((w) => w.length > 1 && !STOP.has(w.toLowerCase()))
-
-  if (words.length === 0) return clip(cleaned)
-  if (words.length === 1) return clip(words[0].toLowerCase())
-  // 短い複合語: auth-fix / 実装-認証
-  const a = words[0]
-  const b = words[1]
-  if (/[\u3040-\u30ff\u4e00-\u9faf]/.test(a) || /[\u3040-\u30ff\u4e00-\u9faf]/.test(b)) {
-    return clip(`${a}${b}`)
-  }
-  return clip(`${a.toLowerCase()}-${b.toLowerCase()}`)
+  if (cleaned.length < 2) return null
+  if (cleaned.length <= max) return cleaned
+  return `${cleaned.slice(0, max - 1)}…`
 }
 
 function stripAnsi(input: string): string {

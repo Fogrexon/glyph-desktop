@@ -15,6 +15,7 @@ export const Ipc = {
   milestoneUpdate: 'milestones:update',
 
   termEnsure: 'term:ensure',
+  termReplay: 'term:replay',
   termWrite: 'term:write',
   termResize: 'term:resize',
   termRestart: 'term:restart',
@@ -32,5 +33,6 @@ export const Ipc = {
 
   settingsGet: 'settings:get',
   settingsSet: 'settings:set',
-  mcpTest: 'settings:mcp-test'
+  mcpTest: 'settings:mcp-test',
+  titleEngineStatus: 'settings:title-engine'
 } as const

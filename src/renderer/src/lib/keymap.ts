@@ -137,7 +137,8 @@ export function chordsEqual(a: Chord, b: Chord): boolean {
   )
 }
 
-export function formatChord(c: Chord): string {
+export function formatChord(c: Chord | null | undefined): string {
+  if (!c || typeof c.key !== 'string') return '未設定'
   const parts: string[] = []
   if (isMac) {
     if (c.ctrl) parts.push('⌃')

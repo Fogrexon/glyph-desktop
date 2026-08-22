@@ -1,7 +1,6 @@
 import { useEffect } from 'react'
+import { ErrorBoundary } from './ErrorBoundary'
 import { CommandPalette } from './CommandPalette'
-import { SettingsPanel } from './SettingsPanel'
-import { TaskEditor } from './TaskEditor'
 import { TaskRail } from './TaskRail'
 import { TerminalPane } from './TerminalPane'
 import { Toasts } from './Toasts'
@@ -10,11 +9,13 @@ import { formatChord } from '@renderer/lib/keymap'
 import { useKeymap } from '@renderer/stores/keymap'
 import { useAgentChat } from '@renderer/stores/agentChat'
 import { useUi } from '@renderer/stores/ui'
+import { applyWorkspaceAction } from '@renderer/lib/workspaceOps'
 import { GLYPH_SELF_TASK_ID } from '@shared/ids'
 import { refreshTasks } from '@renderer/stores/workspace'
 
 export function Workspace(): React.JSX.Element {
   const paletteOpen = useUi((s) => s.paletteOpen)
+  const paletteView = useUi((s) => s.paletteView)
   const viewMode = useUi((s) => s.viewMode)
   const pushToast = useUi((s) => s.pushToast)
   const upsert = useUi((s) => s.upsertSession)
@@ -56,14 +57,20 @@ export function Workspace(): React.JSX.Element {
         void refreshTasks(useUi.getState().viewMode)
         return
       }
+      if (event.type === 'action') {
+        applyWorkspaceAction(event.action)
+        return
+      }
       if (event.type === 'done') {
         chat.finishAssistant(event.text)
         useUi.getState().setAgentBusy(false)
         void refreshTasks(useUi.getState().viewMode)
         return
       }
-      chat.finishAssistant(`エラー: ${event.message}`)
-      useUi.getState().setAgentBusy(false)
+      if (event.type === 'error') {
+        chat.finishAssistant(`エラー: ${event.message}`)
+        useUi.getState().setAgentBusy(false)
+      }
     })
   }, [])
 
@@ -87,20 +94,26 @@ export function Workspace(): React.JSX.Element {
   }, [pushToast, upsert])
 
   return (
-    <div className="workspace">
-      <TaskRail />
-      <TerminalPane />
-      <CommandPalette />
-      <SettingsPanel />
-      <TaskEditor />
+    <>
+      <div className="workspace">
+        <ErrorBoundary compact label="タスク一覧">
+          <TaskRail />
+        </ErrorBoundary>
+        <ErrorBoundary compact label="ターミナル">
+          <TerminalPane />
+        </ErrorBoundary>
+      </div>
+      <ErrorBoundary compact label="パレット" resetKey={`${paletteOpen}:${paletteView}`}>
+        <CommandPalette />
+      </ErrorBoundary>
       <Toasts />
       {!paletteOpen && (
         <div className="hint" style={{ position: 'fixed', bottom: 10, right: 14, zIndex: 5 }}>
           <kbd>{formatChord(keymap['palette.toggle'])}</kbd> パレット ·{' '}
-          <kbd>{formatChord(keymap['term.splitRight'])}</kbd> 右分割 ·{' '}
-          <kbd>{formatChord(keymap['term.splitDown'])}</kbd> 下分割
+          <kbd>{formatChord(keymap['settings.open'])}</kbd> 設定 ·{' '}
+          <kbd>{formatChord(keymap['term.splitRight'])}</kbd> 右分割
         </div>
       )}
-    </div>
+    </>
   )
 }

@@ -10,6 +10,27 @@ export function requestFullQuit(): void {
   app.quit()
 }
 
+/** Menu bar / notification area is ~16–22 DIP. Source PNG is 512². */
+function fitTrayImage(image: Electron.NativeImage): Electron.NativeImage {
+  if (process.platform === 'darwin') {
+    const fitted = nativeImage.createEmpty()
+    fitted.addRepresentation({
+      scaleFactor: 1,
+      width: 16,
+      height: 16,
+      buffer: image.resize({ width: 16, height: 16, quality: 'best' }).toPNG()
+    })
+    fitted.addRepresentation({
+      scaleFactor: 2,
+      width: 32,
+      height: 32,
+      buffer: image.resize({ width: 32, height: 32, quality: 'best' }).toPNG()
+    })
+    return fitted
+  }
+  return image.resize({ width: 16, height: 16, quality: 'best' })
+}
+
 function resolveTrayImage(): Electron.NativeImage {
   const candidates = [
     join(process.resourcesPath, 'tray-icon.png'),
@@ -18,9 +39,7 @@ function resolveTrayImage(): Electron.NativeImage {
   ]
   for (const path of candidates) {
     const image = nativeImage.createFromPath(path)
-    if (!image.isEmpty()) {
-      return process.platform === 'win32' ? image.resize({ width: 16, height: 16 }) : image
-    }
+    if (!image.isEmpty()) return fitTrayImage(image)
   }
   // Fallback amber pixel so Tray always mounts.
   return nativeImage.createFromDataURL(

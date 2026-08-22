@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { relativeToGit } from '@renderer/lib/format'
-import { attachTermHost, fitAndResize, termHosts } from '@renderer/lib/termHosts'
+import { attachTermHost, fitAndResize, restoreTermOutput, termHosts } from '@renderer/lib/termHosts'
 import { statusLabel, useUi } from '@renderer/stores/ui'
 import { useWorkspace } from '@renderer/stores/workspace'
 import { usePanes, type PaneNode, type SplitDir } from '@renderer/stores/panes'
@@ -22,13 +22,9 @@ export function TerminalPane(): React.JSX.Element {
   }, [selected, ensureTree])
 
   useEffect(() => {
-    const offData = window.glyph.terminals.onData(({ paneId, data }) => {
-      termHosts.get(paneId)?.term.write(data)
-    })
     const offStatus = window.glyph.terminals.onStatus((info) => upsert(info))
     const offCwd = window.glyph.terminals.onCwd((info) => upsert(info))
     return () => {
-      offData()
       offStatus()
       offCwd()
     }
@@ -73,7 +69,15 @@ function SplitNode({
   onRatio: (splitId: string, ratio: number) => void
 }): React.JSX.Element {
   if (node.kind === 'leaf') {
-    return <LeafPane paneId={node.id} taskId={taskId} active={node.id === activeId} onFocus={onFocus} />
+    return (
+      <LeafPane
+        key={node.id}
+        paneId={node.id}
+        taskId={taskId}
+        active={node.id === activeId}
+        onFocus={onFocus}
+      />
+    )
   }
   return (
     <div className={`split split-${node.dir}`}>
@@ -160,7 +164,6 @@ function LeafPane({
   onFocus: (paneId: string) => void
 }): React.JSX.Element {
   const hostRef = useRef<HTMLDivElement>(null)
-  const upsert = useUi((s) => s.upsertSession)
   const paletteOpen = useUi((s) => s.paletteOpen)
   const session = useUi((s) => s.sessions[paneId])
   const task = useWorkspace((s) => s.tasks.find((t) => t.id === taskId))
@@ -168,15 +171,24 @@ function LeafPane({
   useEffect(() => {
     if (!hostRef.current) return
     let cancelled = false
-    void window.glyph.terminals.ensure(paneId).then((info) => {
+    const container = hostRef.current
+    void window.glyph.terminals.ensure(paneId).then(async (info) => {
       if (cancelled || !hostRef.current) return
-      upsert(info)
-      const host = attachTermHost(paneId, hostRef.current)
+      useUi.getState().upsertSession(info)
+      const host = attachTermHost(paneId, container)
+      await restoreTermOutput(paneId)
+      if (cancelled) return
       const layout = (): void => {
         if (cancelled) return
         fitAndResize(paneId)
         const rows = host.term.rows
-        if (rows > 0) host.term.refresh(0, rows - 1)
+        if (rows > 0) {
+          try {
+            host.term.refresh(0, rows - 1)
+          } catch {
+            // ignore
+          }
+        }
         if (active && !useUi.getState().paletteOpen) host.term.focus()
       }
       requestAnimationFrame(() => requestAnimationFrame(layout))
@@ -184,7 +196,7 @@ function LeafPane({
     return () => {
       cancelled = true
     }
-  }, [paneId, upsert])
+  }, [paneId])
 
   useEffect(() => {
     const host = termHosts.get(paneId)
@@ -229,7 +241,9 @@ function LeafPane({
           {cwd ? relativeToGit(cwd, gitRoot) : 'ディレクトリ未取得'}
         </div>
         <span className="hint">
-          {session?.activity ? `${session.activity} · ` : ''}
+          {session?.workTitle || session?.activity
+            ? `${session.workTitle || session.activity} · `
+            : ''}
           {statusLabel(session?.status)} · {task?.goal || 'ゴール未設定'}
         </span>
       </div>

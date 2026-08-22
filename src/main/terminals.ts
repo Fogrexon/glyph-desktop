@@ -4,18 +4,19 @@ import type { IPty } from 'node-pty'
 import * as nodePty from 'node-pty'
 import type { TerminalSessionInfo } from '@shared/types'
 import { findGitRoot } from './cwd'
-import { labelFromProcessCommand, mergeActivitySnapshot, type ActivitySnapshot } from './activity'
+import { EMPTY_ACTIVITY, labelFromProcessCommand, mergeActivitySnapshot, type ActivitySnapshot } from './activity'
 import { OscScanner } from './osc'
 import { cwdForPane, resolveShellLaunch } from './shell-hooks'
 import { detectStatus, type StatusSnapshot } from './status'
 import { rememberCwd } from './tasks'
 import { forgetPaneCwd, rememberPaneCwd } from './pane-cwd'
+import { cancelAllWorkTitles, cancelWorkTitle, scheduleWorkTitle } from './work-title'
 
 export type DataHandler = (paneId: string, data: string) => void
 export type StatusHandler = (info: TerminalSessionInfo) => void
 export type ExitHandler = (paneId: string, exitCode: number) => void
 
-const OUTPUT_BUFFER_MAX = 64_000
+const OUTPUT_BUFFER_MAX = 1_000_000
 
 interface Session {
   paneId: string
@@ -27,11 +28,10 @@ interface Session {
   scanner: OscScanner
   status: StatusSnapshot
   activity: ActivitySnapshot
+  llmTitle: string | null
   alive: boolean
   /** Recent PTY output so a late-attached xterm can catch up. */
   outputBuffer: string
-  /** True after backlog was flushed to a renderer once. */
-  backlogSent: boolean
 }
 
 const sessions = new Map<string, Session>()
@@ -66,7 +66,8 @@ function toInfo(session: Session): TerminalSessionInfo {
     lastCwd: session.lastCwd,
     status: session.alive ? session.status.status : 'exited',
     activity: session.activity.activity,
-    activities: session.activity.activities,
+    workTitle: session.llmTitle || session.activity.workTitle,
+    workItems: session.activity.workItems,
     alive: session.alive
   }
 }
@@ -105,17 +106,14 @@ function spawnPty(paneId: string): Session {
     lastCwd: launch.cwd || homedir(),
     scanner: new OscScanner(),
     status: { status: 'idle', lastOutputAt: Date.now() },
-    activity: { activity: null, activities: [] },
+    activity: { ...EMPTY_ACTIVITY },
+    llmTitle: null,
     alive: true,
-    outputBuffer: '',
-    backlogSent: false
+    outputBuffer: ''
   }
 
   pty.onData((data) => {
-    session.outputBuffer =
-      session.outputBuffer.length + data.length > OUTPUT_BUFFER_MAX
-        ? (session.outputBuffer + data).slice(-OUTPUT_BUFFER_MAX)
-        : session.outputBuffer + data
+    session.outputBuffer = appendOutput(session.outputBuffer, data)
     const events = session.scanner.push(data)
     if (events.cwds.length > 0) {
       applyCwd(session, events.cwds[events.cwds.length - 1])
@@ -124,11 +122,19 @@ function spawnPty(paneId: string): Session {
       previous: session.activity,
       chunk: data,
       recentText: session.outputBuffer,
-      commands: events.commands
+      commands: events.commands,
+      preferClaudeFiles: session.paneId === session.taskId
     })
     session.status = detectStatus(data, session.status, Date.now(), session.alive)
     emitStatus(session)
     onData?.(session.paneId, data)
+    scheduleWorkTitle(session.paneId, session.outputBuffer, (title) => {
+      const current = sessions.get(session.paneId)
+      if (!current?.alive) return
+      if (current.llmTitle === title) return
+      current.llmTitle = title
+      emitStatus(current)
+    })
   })
 
   pty.onExit(({ exitCode }) => {
@@ -146,18 +152,36 @@ function spawnPty(paneId: string): Session {
 
 export function ensureSession(paneId: string): TerminalSessionInfo {
   const existing = sessions.get(paneId)
-  if (existing?.alive) {
-    if (!existing.backlogSent) {
-      if (existing.outputBuffer) onData?.(paneId, existing.outputBuffer)
-      existing.backlogSent = true
-      existing.outputBuffer = ''
-    }
-    return toInfo(existing)
-  }
+  if (existing?.alive) return toInfo(existing)
   if (existing && !existing.alive) {
     sessions.delete(paneId)
   }
   return toInfo(spawnPty(paneId))
+}
+
+/** Snapshot for a late-attached xterm. Prefer last full-screen clear. */
+export function replayOutput(paneId: string): string {
+  const session = sessions.get(paneId)
+  if (!session?.outputBuffer) return ''
+  return snapshotForReplay(session.outputBuffer)
+}
+
+function appendOutput(prev: string, chunk: string): string {
+  const next = prev + chunk
+  if (next.length <= OUTPUT_BUFFER_MAX) return next
+  return dropIncompletePrefix(next.slice(-OUTPUT_BUFFER_MAX))
+}
+
+function snapshotForReplay(buffer: string): string {
+  if (!buffer) return ''
+  return dropIncompletePrefix(buffer)
+}
+
+/** Skip a truncated first line after a budget slice. Keep CSI that starts the buffer. */
+function dropIncompletePrefix(s: string): string {
+  if (!s || s.charCodeAt(0) === 0x1b) return s
+  const nl = s.indexOf('\n')
+  return nl >= 0 ? s.slice(nl + 1) : s
 }
 
 /** Spawn without marking backlog consumed — used at app startup. */
@@ -177,6 +201,7 @@ export function restartSession(paneId: string): TerminalSessionInfo {
       // ignore
     }
     sessions.delete(paneId)
+    cancelWorkTitle(paneId)
   }
   return toInfo(spawnPty(paneId))
 }
@@ -193,6 +218,7 @@ export function killSession(paneId: string, forgetCwd = false): void {
     // ignore
   }
   sessions.delete(paneId)
+  cancelWorkTitle(paneId)
   if (forgetCwd) forgetPaneCwd(paneId)
 }
 
@@ -228,6 +254,7 @@ export function disposeAllSessions(): void {
     }
   }
   sessions.clear()
+  cancelAllWorkTitles()
 }
 
 function probePidCwd(pid: number): Promise<string | null> {
@@ -265,11 +292,13 @@ export function startIdleWatcher(): void {
         previous: session.activity,
         chunk: '',
         recentText: session.outputBuffer,
-        commands: []
+        commands: [],
+        preferClaudeFiles: session.paneId === session.taskId
       })
       if (
         refreshed.activity !== session.activity.activity ||
-        refreshed.activities.join('\0') !== session.activity.activities.join('\0')
+        refreshed.workTitle !== session.activity.workTitle ||
+        refreshed.workItems.join('\0') !== session.activity.workItems.join('\0')
       ) {
         session.activity = refreshed
         changed = true
@@ -283,8 +312,7 @@ export function startIdleWatcher(): void {
       void probeChildActivity(session.pty.pid).then((label) => {
         if (!label) return
         if (session.activity.activity === label) return
-        if (session.activity.activities.length > 0 && session.activity.activities[0] !== label) {
-          // エージェント Tasks があるときは上書きしない
+        if (session.activity.workItems.length > 0 || session.activity.workTitle) {
           if (session.activity.activity && session.activity.activity !== label) {
             session.activity = { ...session.activity, activity: label }
             emitStatus(session)
@@ -292,9 +320,9 @@ export function startIdleWatcher(): void {
           return
         }
         session.activity = {
+          ...session.activity,
           activity: label,
-          activities:
-            session.activity.activities.length > 0 ? session.activity.activities : [label]
+          workTitle: session.activity.workTitle || label
         }
         emitStatus(session)
       })

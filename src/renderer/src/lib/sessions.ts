@@ -4,7 +4,13 @@ export function sessionsForTask(
   sessions: Record<string, TerminalSessionInfo>,
   taskId: string
 ): TerminalSessionInfo[] {
-  return Object.values(sessions).filter((s) => s.taskId === taskId)
+  return Object.values(sessions)
+    .filter((s) => s.taskId === taskId)
+    .sort((a, b) => {
+      if (a.paneId === taskId) return -1
+      if (b.paneId === taskId) return 1
+      return a.paneId.localeCompare(b.paneId)
+    })
 }
 
 export function sessionForPane(
@@ -36,26 +42,15 @@ export function representativeSession(
   return list.find((s) => s.paneId === taskId) ?? list[0]
 }
 
-/** タスク内ペインの作業ラベルを、出現順の一意リストで返す */
-export function taskActivities(
-  sessions: Record<string, TerminalSessionInfo>,
-  taskId: string
-): string[] {
-  const seen = new Set<string>()
-  const out: string[] = []
-  for (const session of sessionsForTask(sessions, taskId)) {
-    const labels =
-      session.activities && session.activities.length > 0
-        ? session.activities
-        : session.activity
-          ? [session.activity]
-          : []
-    for (const label of labels) {
-      const trimmed = label.trim()
-      if (!trimmed || seen.has(trimmed)) continue
-      seen.add(trimmed)
-      out.push(trimmed)
-    }
-  }
-  return out
+export function paneWorkTitle(session: TerminalSessionInfo): string | null {
+  return session.workTitle || session.activity
+}
+
+export function paneWorkItems(session: TerminalSessionInfo): string[] {
+  const title = paneWorkTitle(session)
+  return (session.workItems ?? []).filter((item) => item !== title)
+}
+
+export function paneHasWork(session: TerminalSessionInfo): boolean {
+  return Boolean(paneWorkTitle(session) || (session.workItems && session.workItems.length > 0))
 }

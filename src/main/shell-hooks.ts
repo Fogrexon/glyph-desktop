@@ -140,12 +140,26 @@ function Register-GlyphCommandHook {
 Register-GlyphCommandHook
 `
 
+/** Dock/Finder 起動の Electron は LANG が空 or C になり、日本語が壊れる。 */
+function withUtf8Locale(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  if (process.platform === 'win32') return env
+  const current = env.LC_ALL || env.LANG || env.LC_CTYPE || ''
+  if (/utf-?8/i.test(current) && current !== 'C' && current !== 'POSIX') return env
+  const loc = Intl.DateTimeFormat().resolvedOptions().locale.replaceAll('-', '_')
+  const utf8 = loc.includes('_') ? `${loc}.UTF-8` : 'en_US.UTF-8'
+  return {
+    ...env,
+    LANG: utf8,
+    LC_CTYPE: env.LC_CTYPE && /utf-?8/i.test(env.LC_CTYPE) ? env.LC_CTYPE : utf8
+  }
+}
+
 export function resolveShellLaunch(cwd = homedir()): ShellLaunch {
-  const env: NodeJS.ProcessEnv = {
+  const env: NodeJS.ProcessEnv = withUtf8Locale({
     ...process.env,
     TERM: 'xterm-256color',
     COLORTERM: 'truecolor'
-  }
+  })
 
   if (process.platform === 'win32') {
     const file = process.env.GLYPH_SHELL || 'powershell.exe'

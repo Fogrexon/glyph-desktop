@@ -10,7 +10,8 @@ const DEFAULTS: AppSettings = {
   vertexLocation: process.env.GOOGLE_CLOUD_LOCATION || 'us-central1',
   mcpServersJson: '{\n  "mcpServers": {}\n}\n',
   openrouterApiKey: '',
-  geminiApiKey: ''
+  geminiApiKey: '',
+  titleMode: 'local',
 }
 
 interface PersistedFile {
@@ -19,6 +20,7 @@ interface PersistedFile {
   vertexProject: string
   vertexLocation: string
   mcpServersJson: string
+  titleMode?: 'heuristic' | 'local' | 'ollama'
   secrets?: string
 }
 
@@ -67,7 +69,8 @@ export function loadSettings(): AppSettings {
       vertexLocation: parsed.vertexLocation ?? DEFAULTS.vertexLocation,
       mcpServersJson: parsed.mcpServersJson ?? DEFAULTS.mcpServersJson,
       openrouterApiKey: secrets.openrouterApiKey,
-      geminiApiKey: secrets.geminiApiKey
+      geminiApiKey: secrets.geminiApiKey,
+      titleMode: parsed.titleMode === 'heuristic' ? 'heuristic' : 'local'
     }
   } catch {
     return { ...DEFAULTS }
@@ -81,6 +84,7 @@ export function saveSettings(next: AppSettings): AppSettings {
     vertexProject: next.vertexProject,
     vertexLocation: next.vertexLocation,
     mcpServersJson: next.mcpServersJson,
+    titleMode: next.titleMode,
     secrets: encodeSecrets({
       openrouterApiKey: next.openrouterApiKey,
       geminiApiKey: next.geminiApiKey

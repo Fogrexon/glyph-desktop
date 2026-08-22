@@ -5,8 +5,10 @@ import {
   matchAction,
   type ShortcutAction
 } from '@renderer/lib/keymap'
+import { RECOVER_EVENT } from '@renderer/lib/recoverWorkspace'
 import { useKeymap } from '@renderer/stores/keymap'
 import { usePanes } from '@renderer/stores/panes'
+import { restoreTermOutput } from '@renderer/lib/termHosts'
 import { useUi } from '@renderer/stores/ui'
 
 export function runShortcutAction(action: ShortcutAction): void {
@@ -16,11 +18,15 @@ export function runShortcutAction(action: ShortcutAction): void {
 
   switch (action) {
     case 'palette.toggle':
-      ui.setPaletteOpen(!ui.paletteOpen)
+      window.dispatchEvent(new Event(RECOVER_EVENT))
+      if (!ui.paletteOpen || ui.paletteView !== 'root') {
+        ui.setPaletteView('root')
+        return
+      }
+      ui.setPaletteOpen(false)
       return
     case 'settings.open':
-      ui.setSettingsOpen(true)
-      ui.setPaletteOpen(false)
+      ui.setPaletteView('settings')
       return
     case 'workspace.exit':
       void window.glyph.window.exitWorkspace()
@@ -63,7 +69,7 @@ export function runShortcutAction(action: ShortcutAction): void {
     case 'term.restart': {
       if (!taskId) return
       const paneId = panes.activePane[taskId] ?? taskId
-      void window.glyph.terminals.restart(paneId)
+      void window.glyph.terminals.restart(paneId).then(() => restoreTermOutput(paneId))
       return
     }
     default:

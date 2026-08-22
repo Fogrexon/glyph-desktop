@@ -7,9 +7,47 @@
       http-equiv="Content-Security-Policy"
       content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:"
     />
+    <style>
+      html,
+      body,
+      #root {
+        height: 100%;
+        width: 100%;
+        margin: 0;
+        background: #0c0d10;
+        color: #e8e6e1;
+        font-family: system-ui, sans-serif;
+      }
+      #boot {
+        position: fixed;
+        inset: 0;
+        z-index: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        letter-spacing: 0.16em;
+      }
+      #boot span {
+        color: #8b909c;
+        font-size: 12px;
+        letter-spacing: 0;
+      }
+      body.app-ready #boot {
+        display: none;
+      }
+      body.app-ready:has(#root:empty) #boot {
+        display: flex;
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>
+    <div id="boot">
+      GLYPH
+      <span>読み込み中…</span>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

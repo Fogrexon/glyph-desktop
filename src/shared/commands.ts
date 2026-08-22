@@ -4,7 +4,7 @@ export const COMMANDS: CommandDef[] = [
   {
     id: 'task.new',
     title: '新しいタスク',
-    subtitle: 'ゴールとマイルストーンを登録する',
+    subtitle: 'パレットでゴールとマイルストーンを登録',
     aliases: ['nt', 'new', 'create'],
     keywords: ['タスク', '作成', '追加', 'task', 'new'],
     group: 'task'
@@ -24,6 +24,14 @@ export const COMMANDS: CommandDef[] = [
     aliases: ['open', 'o'],
     keywords: ['開く', 'フォーカス', 'open'],
     group: 'task'
+  },
+  {
+    id: 'search.open',
+    title: 'タスク・ターミナルを検索',
+    subtitle: '? であいまい検索してジャンプ',
+    aliases: ['find', 'goto', 'jump', 'fzf'],
+    keywords: ['検索', 'あいまい', 'fuzzy', 'ターミナル', 'タスク', 'cwd'],
+    group: 'app'
   },
   {
     id: 'task.complete',
@@ -68,9 +76,17 @@ export const COMMANDS: CommandDef[] = [
   {
     id: 'settings.open',
     title: '設定を開く',
-    subtitle: 'モデル・プロバイダ・MCP',
+    subtitle: 'プロバイダ・モデル・MCP をパレットで変える',
     aliases: ['set', 'config', 'preferences'],
     keywords: ['設定', 'settings', 'モデル', 'mcp', 'api'],
+    group: 'app'
+  },
+  {
+    id: 'shortcuts.open',
+    title: 'ショートカット',
+    subtitle: '一覧を見て割り当てを変える',
+    aliases: ['keymap', 'keys', 'shortcuts', 'hotkey'],
+    keywords: ['ショートカット', 'キー', 'keymap', 'bind', 'hotkey'],
     group: 'app'
   },
   {
@@ -103,6 +119,30 @@ export const COMMANDS: CommandDef[] = [
     subtitle: '選択中ターミナルの cwd',
     aliases: ['pwd', 'cwd'],
     keywords: ['ディレクトリ', 'cwd', 'pwd', 'パス'],
+    group: 'term'
+  },
+  {
+    id: 'term.split-right',
+    title: '右に分割',
+    subtitle: '選択中ペインを左右に割る',
+    aliases: ['split', 'vsplit'],
+    keywords: ['分割', '右', 'split', 'pane'],
+    group: 'term'
+  },
+  {
+    id: 'term.split-down',
+    title: '下に分割',
+    subtitle: '選択中ペインを上下に割る',
+    aliases: ['hsplit'],
+    keywords: ['分割', '下', 'split', 'pane'],
+    group: 'term'
+  },
+  {
+    id: 'term.close-pane',
+    title: 'ペインを閉じる',
+    subtitle: '選択中の分割ペインを閉じる',
+    aliases: ['close-pane'],
+    keywords: ['閉じる', 'ペイン', 'close', 'pane'],
     group: 'term'
   },
   {

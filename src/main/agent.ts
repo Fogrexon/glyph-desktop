@@ -1,7 +1,7 @@
 import type { LlmTool } from './llm/types'
 import { createProvider } from './llm/registry'
 import type { LlmMessage } from './llm/types'
-import { loadSettings } from './settings'
+import { defaultModelFor, loadSettings, patchSettings } from './settings'
 import {
   addMilestone,
   archiveTask,
@@ -12,21 +12,39 @@ import {
   listTaskViews,
   updateTask
 } from './tasks'
-import { getSession } from './terminals'
-import type { AgentRunResult, AgentStreamEvent } from '@shared/types'
+import { getSession, listSessions, restartSession } from './terminals'
+import { GLYPH_SELF_TASK_ID } from '@shared/ids'
+import type {
+  AgentContext,
+  AgentRunResult,
+  AgentStreamEvent,
+  AgentUiAction,
+  LlmProviderId
+} from '@shared/types'
+import { exitWorkspace, minimizeApp } from './windows'
 
-const SYSTEM = `あなたは Glyph のワークスペース管理エージェントです。
-役割はタスク管理だけです。コードを書かない、ターミナルにコマンドを送らない、資料本文を書かない。
-ユーザーの自然言語を、タスク・ゴール・マイルストーン（締め切りと任意の作業開始日）の操作に翻訳します。
+const SYSTEM = `あなたは Glyph デスクトップの操作エージェントです。
+ユーザーの自然言語を、このアプリでできる操作に翻訳して実行します。
 
-これはマルチターンの会話です。直前までの操作とタスク状態を踏まえ、追加の指示でタスクを改善・分割・締め切り調整してください。
-足りない情報は短く質問してよい。
+できること:
+- タスク・ゴール・マイルストーンの作成 / 更新 / 完了 / 開く
+- 表示切替（now=開始日到来分だけ、all=全部）
+- 設定（プロバイダ・モデル・API キー・MCP）をパレット内で開く。パレットは閉じない
+- ショートカット（キー割り当て）一覧をパレット内で開く。パレットは閉じない
+- ターミナルの状態確認・再起動・左右/上下分割・ペイン閉じる・フォーカス
+- ワークスペースを閉じてランチャーへ戻る、トレイに退避
+- Glyph 自身の開発タスクを開く
+
+禁止:
+- コードを書かない
+- ターミナルにシェルコマンドを打ち込まない（実装・資料作成は各タスクのターミナルで動くエージェントに任せる）
+- API キーを会話に出さない。キー入力が必要なら設定画面を開く
 
 思想:
 - マイルストーンに workStartAt（作業開始日時）がある場合、それより前の仕事は「今」の一覧から消す。
 - 優先度は未完了マイルストーンの締め切りから決まる。期限超過が最優先。
-- あいまいな依頼でも、確認できる範囲でタスクを切り、足りない日付は質問する。
-- 高度な作業（実装・資料作成）は各タスクのターミナルで動くエージェントに任せる旨を短く伝える。
+- あいまいな依頼でも、確認できる範囲で実行し、足りない情報は短く質問する。
+- これはマルチターンの会話。直前までの操作と状態を踏まえる。
 
 返答は日本語。実行した操作を簡潔に報告する。`
 
@@ -115,22 +133,134 @@ export const WORKSPACE_TOOLS: LlmTool[] = [
   },
   {
     name: 'open_task',
-    description: '指定タスクをワークスペースで開くよう印を付ける。',
+    description: '指定タスクをワークスペースで開き、そのターミナルを表示する。',
     parameters: {
       type: 'object',
       properties: { id: { type: 'string' } },
       required: ['id']
     }
+  },
+  {
+    name: 'get_workspace_state',
+    description:
+      '選択中タスク、表示モード、設定（キー除く）、全ターミナルセッション、タスク概要。',
+    parameters: { type: 'object', properties: {} }
+  },
+  {
+    name: 'set_view_mode',
+    description: 'タスク一覧の表示。now=今やる仕事だけ。all=開始日前も含む全部。',
+    parameters: {
+      type: 'object',
+      properties: { mode: { type: 'string', enum: ['now', 'all'] } },
+      required: ['mode']
+    }
+  },
+  {
+    name: 'open_settings',
+    description:
+      'パレット内の設定一覧を開く（プロバイダ・モデル・API キー・MCP）。パレットは閉じない。キー割り当てには open_shortcuts を使う。',
+    parameters: { type: 'object', properties: {} }
+  },
+  {
+    name: 'open_shortcuts',
+    description:
+      'パレット内のショートカット（キー割り当て）一覧を開く。キー設定を見せて／変えて、と言われたとき。パレットは閉じない。',
+    parameters: { type: 'object', properties: {} }
+  },
+  {
+    name: 'open_task_editor',
+    description: 'タスク作成フォームを開く。自然言語ではなく画面で入力させたいとき。',
+    parameters: { type: 'object', properties: {} }
+  },
+  {
+    name: 'update_settings',
+    description: 'パレット用プロバイダまたはモデル ID を変える。API キーは扱わない。',
+    parameters: {
+      type: 'object',
+      properties: {
+        provider: { type: 'string', enum: ['openrouter', 'gemini', 'vertex'] },
+        model: { type: 'string' }
+      }
+    }
+  },
+  {
+    name: 'restart_terminal',
+    description: 'PTY を作り直す。paneId 省略時は選択中ペイン。',
+    parameters: {
+      type: 'object',
+      properties: { paneId: { type: 'string' } }
+    }
+  },
+  {
+    name: 'split_terminal',
+    description: '選択中ペインを分割。horizontal=左右、vertical=上下。',
+    parameters: {
+      type: 'object',
+      properties: { dir: { type: 'string', enum: ['horizontal', 'vertical'] } },
+      required: ['dir']
+    }
+  },
+  {
+    name: 'close_pane',
+    description: '選択中の分割ペインを閉じる。最後の1枚は閉じられない。',
+    parameters: { type: 'object', properties: {} }
+  },
+  {
+    name: 'focus_pane',
+    description: '分割ペインのフォーカスを移す。',
+    parameters: {
+      type: 'object',
+      properties: {
+        dir: { type: 'string', enum: ['left', 'right', 'up', 'down', 'next', 'prev'] }
+      },
+      required: ['dir']
+    }
+  },
+  {
+    name: 'minimize_app',
+    description: 'トレイに退避。ターミナルはバックグラウンドで継続。完全終了ではない。',
+    parameters: { type: 'object', properties: {} }
+  },
+  {
+    name: 'exit_workspace',
+    description: 'ワークスペースを閉じてランチャーに戻る。ターミナルは維持。',
+    parameters: { type: 'object', properties: {} }
+  },
+  {
+    name: 'open_glyph_self',
+    description: 'このリポジトリ（Glyph 自身）の開発タスクを開く。',
+    parameters: { type: 'object', properties: {} }
   }
 ]
 
 interface ToolContext {
   createdTaskId?: string
+  actions: AgentUiAction[]
+  ui: AgentContext
 }
 
 let conversation: LlmMessage[] = [{ role: 'system', content: SYSTEM }]
 
-async function executeTool(name: string, rawArgs: string, ctx: ToolContext): Promise<string> {
+function pushAction(
+  ctx: ToolContext,
+  action: AgentUiAction,
+  emit?: (event: AgentStreamEvent) => void
+): void {
+  ctx.actions.push(action)
+  emit?.({ type: 'action', action })
+}
+
+function paneIdOf(ctx: ToolContext, explicit?: unknown): string | null {
+  if (typeof explicit === 'string' && explicit.trim()) return explicit.trim()
+  return ctx.ui.activePaneId || ctx.ui.selectedTaskId
+}
+
+async function executeTool(
+  name: string,
+  rawArgs: string,
+  ctx: ToolContext,
+  emit?: (event: AgentStreamEvent) => void
+): Promise<string> {
   let args: Record<string, unknown> = {}
   try {
     args = JSON.parse(rawArgs || '{}') as Record<string, unknown>
@@ -178,6 +308,7 @@ async function executeTool(name: string, rawArgs: string, ctx: ToolContext): Pro
           : []
       })
       ctx.createdTaskId = created.id
+      pushAction(ctx, { type: 'selectTask', taskId: created.id }, emit)
       return JSON.stringify(created)
     }
     case 'update_task': {
@@ -210,7 +341,127 @@ async function executeTool(name: string, rawArgs: string, ctx: ToolContext): Pro
     case 'open_task': {
       const id = String(args.id)
       const task = await getTaskView(id)
-      return JSON.stringify({ noted: id, title: task?.title, hint: 'パレットを閉じると一覧から開けます' })
+      if (!task) return JSON.stringify({ error: 'task not found', id })
+      pushAction(ctx, { type: 'selectTask', taskId: id }, emit)
+      pushAction(ctx, { type: 'closePalette' }, emit)
+      return JSON.stringify({ opened: id, title: task.title })
+    }
+    case 'get_workspace_state': {
+      const settings = loadSettings()
+      const sessions = listSessions()
+      const tasks = await listTaskViews(ctx.ui.viewMode)
+      return JSON.stringify({
+        selectedTaskId: ctx.ui.selectedTaskId,
+        viewMode: ctx.ui.viewMode,
+        activePaneId: ctx.ui.activePaneId,
+        settings: {
+          provider: settings.provider,
+          model: settings.model,
+          vertexProject: settings.vertexProject,
+          vertexLocation: settings.vertexLocation,
+          hasOpenrouterKey: Boolean(settings.openrouterApiKey),
+          hasGeminiKey: Boolean(settings.geminiApiKey)
+        },
+        sessions: sessions.map((s) => ({
+          paneId: s.paneId,
+          taskId: s.taskId,
+          cwd: s.cwd,
+          gitRoot: s.gitRoot,
+          status: s.status,
+          activity: s.activity,
+          workTitle: s.workTitle,
+          workItems: s.workItems,
+          alive: s.alive
+        })),
+        tasks: tasks.map((t) => ({
+          id: t.id,
+          title: t.title,
+          overdue: t.overdue,
+          nearestDeadline: t.nearestDeadline,
+          lastCwd: t.lastCwd
+        }))
+      })
+    }
+    case 'set_view_mode': {
+      const mode = args.mode === 'all' ? 'all' : 'now'
+      pushAction(ctx, { type: 'setViewMode', mode }, emit)
+      return JSON.stringify({ ok: true, mode })
+    }
+    case 'open_settings': {
+      pushAction(ctx, { type: 'openSettings' }, emit)
+      return JSON.stringify({ ok: true })
+    }
+    case 'open_shortcuts': {
+      pushAction(ctx, { type: 'openShortcuts' }, emit)
+      return JSON.stringify({ ok: true })
+    }
+    case 'open_task_editor': {
+      pushAction(ctx, { type: 'openTaskEditor' }, emit)
+      return JSON.stringify({ ok: true })
+    }
+    case 'update_settings': {
+      const providers: LlmProviderId[] = ['openrouter', 'gemini', 'vertex']
+      const patch: { provider?: LlmProviderId; model?: string } = {}
+      if (typeof args.provider === 'string' && providers.includes(args.provider as LlmProviderId)) {
+        patch.provider = args.provider as LlmProviderId
+      }
+      if (typeof args.model === 'string' && args.model.trim()) {
+        patch.model = args.model.trim()
+      }
+      if (!patch.provider && !patch.model) {
+        return JSON.stringify({ error: 'provider or model required' })
+      }
+      if (patch.provider && !patch.model) {
+        patch.model = defaultModelFor(patch.provider)
+      }
+      const next = patchSettings(patch)
+      return JSON.stringify({
+        ok: true,
+        provider: next.provider,
+        model: next.model
+      })
+    }
+    case 'restart_terminal': {
+      const paneId = paneIdOf(ctx, args.paneId)
+      if (!paneId) return JSON.stringify({ error: 'no pane selected' })
+      const info = restartSession(paneId)
+      pushAction(ctx, { type: 'closePalette' }, emit)
+      return JSON.stringify({ ok: true, paneId, cwd: info.cwd })
+    }
+    case 'split_terminal': {
+      const dir = args.dir === 'vertical' ? 'vertical' : 'horizontal'
+      if (!ctx.ui.selectedTaskId) return JSON.stringify({ error: 'no task selected' })
+      pushAction(ctx, { type: 'splitPane', dir }, emit)
+      pushAction(ctx, { type: 'closePalette' }, emit)
+      return JSON.stringify({ ok: true, dir })
+    }
+    case 'close_pane': {
+      if (!ctx.ui.selectedTaskId) return JSON.stringify({ error: 'no task selected' })
+      pushAction(ctx, { type: 'closePane' }, emit)
+      pushAction(ctx, { type: 'closePalette' }, emit)
+      return JSON.stringify({ ok: true })
+    }
+    case 'focus_pane': {
+      const dir = String(args.dir || '')
+      const allowed = ['left', 'right', 'up', 'down', 'next', 'prev'] as const
+      if (!allowed.includes(dir as (typeof allowed)[number])) {
+        return JSON.stringify({ error: 'dir must be left|right|up|down|next|prev' })
+      }
+      pushAction(ctx, { type: 'focusPane', dir: dir as (typeof allowed)[number] }, emit)
+      return JSON.stringify({ ok: true, dir })
+    }
+    case 'minimize_app': {
+      minimizeApp()
+      return JSON.stringify({ ok: true })
+    }
+    case 'exit_workspace': {
+      exitWorkspace()
+      return JSON.stringify({ ok: true })
+    }
+    case 'open_glyph_self': {
+      pushAction(ctx, { type: 'selectTask', taskId: GLYPH_SELF_TASK_ID }, emit)
+      pushAction(ctx, { type: 'closePalette' }, emit)
+      return JSON.stringify({ opened: GLYPH_SELF_TASK_ID })
     }
     case 'archive_task': {
       await archiveTask(String(args.id))
@@ -225,16 +476,30 @@ export function resetWorkspaceAgent(): void {
   conversation = [{ role: 'system', content: SYSTEM }]
 }
 
+function formatContext(ui: AgentContext): string {
+  return [
+    `選択中タスクID: ${ui.selectedTaskId || '(なし)'}`,
+    `表示モード: ${ui.viewMode}`,
+    `アクティブペインID: ${ui.activePaneId || '(なし)'}`
+  ].join('\n')
+}
+
 export async function runWorkspaceAgent(
   prompt: string,
-  emit?: (event: AgentStreamEvent) => void
+  emit?: (event: AgentStreamEvent) => void,
+  context?: AgentContext
 ): Promise<AgentRunResult> {
   const settings = loadSettings()
   const provider = createProvider(settings)
-  const ctx: ToolContext = {}
+  const ui: AgentContext = context ?? {
+    selectedTaskId: null,
+    viewMode: 'now',
+    activePaneId: null
+  }
+  const ctx: ToolContext = { actions: [], ui }
   conversation.push({
     role: 'user',
-    content: `現在時刻(ms): ${Date.now()}\nISO: ${new Date().toISOString()}\n\n${prompt}`
+    content: `現在時刻(ms): ${Date.now()}\nISO: ${new Date().toISOString()}\n${formatContext(ui)}\n\n${prompt}`
   })
 
   try {
@@ -254,7 +519,7 @@ export async function runWorkspaceAgent(
         const text = result.text || streamed || '完了しました。'
         conversation.push({ role: 'assistant', content: text })
         emit?.({ type: 'done', text, createdTaskId: ctx.createdTaskId })
-        return { text, createdTaskId: ctx.createdTaskId }
+        return { text, createdTaskId: ctx.createdTaskId, actions: ctx.actions }
       }
 
       conversation.push({
@@ -265,7 +530,7 @@ export async function runWorkspaceAgent(
 
       for (const call of result.toolCalls) {
         emit?.({ type: 'tool', name: call.name })
-        const output = await executeTool(call.name, call.arguments, ctx)
+        const output = await executeTool(call.name, call.arguments, ctx, emit)
         conversation.push({
           role: 'tool',
           toolCallId: call.id,
@@ -277,7 +542,7 @@ export async function runWorkspaceAgent(
 
     const text = '操作が長すぎたため途中で止めました。もう一度指示してください。'
     emit?.({ type: 'done', text, createdTaskId: ctx.createdTaskId })
-    return { text, createdTaskId: ctx.createdTaskId }
+    return { text, createdTaskId: ctx.createdTaskId, actions: ctx.actions }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     emit?.({ type: 'error', message })

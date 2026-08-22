@@ -22,6 +22,8 @@ function persistSelectedTaskId(selectedTaskId: string | null): void {
   }
 }
 
+export type PaletteView = 'root' | 'shortcuts' | 'settings' | 'task-new'
+
 export interface Toast {
   id: string
   text: string
@@ -30,8 +32,7 @@ export interface Toast {
 
 interface UiState {
   paletteOpen: boolean
-  settingsOpen: boolean
-  editorOpen: boolean
+  paletteView: PaletteView
   viewMode: TaskViewMode
   selectedTaskId: string | null
   agentNote: string | null
@@ -39,8 +40,7 @@ interface UiState {
   toasts: Toast[]
   sessions: Record<string, TerminalSessionInfo>
   setPaletteOpen: (open: boolean) => void
-  setSettingsOpen: (open: boolean) => void
-  setEditorOpen: (open: boolean) => void
+  setPaletteView: (view: PaletteView) => void
   setViewMode: (mode: TaskViewMode) => void
   selectTask: (id: string | null) => void
   setAgentNote: (text: string | null) => void
@@ -51,41 +51,53 @@ interface UiState {
   removeSession: (paneId: string) => void
 }
 
-export const useUi = create<UiState>((set) => ({
-  paletteOpen: false,
-  settingsOpen: false,
-  editorOpen: false,
-  viewMode: 'now',
-  selectedTaskId: loadSelectedTaskId(),
-  agentNote: null,
-  agentBusy: false,
-  toasts: [],
-  sessions: {},
-  setPaletteOpen: (paletteOpen) => set({ paletteOpen }),
-  setSettingsOpen: (settingsOpen) => set({ settingsOpen }),
-  setEditorOpen: (editorOpen) => set({ editorOpen }),
-  setViewMode: (viewMode) => set({ viewMode }),
-  selectTask: (selectedTaskId) => {
-    persistSelectedTaskId(selectedTaskId)
-    set({ selectedTaskId })
-  },
-  setAgentNote: (agentNote) => set({ agentNote }),
-  setAgentBusy: (agentBusy) => set({ agentBusy }),
-  pushToast: (toast) =>
-    set((state) => ({
-      toasts: [...state.toasts, { id: toast.id ?? crypto.randomUUID(), ...toast }]
-    })),
-  dismissToast: (id) => set((state) => ({ toasts: state.toasts.filter((t) => t.id !== id) })),
-  upsertSession: (info) =>
-    set((state) => ({
-      sessions: { ...state.sessions, [info.paneId]: info }
-    })),
-  removeSession: (paneId) =>
-    set((state) => {
-      const { [paneId]: _removed, ...rest } = state.sessions
-      return { sessions: rest }
-    })
-}))
+function createUiStore() {
+  return create<UiState>((set) => ({
+    paletteOpen: false,
+    paletteView: 'root',
+    viewMode: 'now',
+    selectedTaskId: loadSelectedTaskId(),
+    agentNote: null,
+    agentBusy: false,
+    toasts: [],
+    sessions: {},
+    setPaletteOpen: (paletteOpen) =>
+      set(paletteOpen ? { paletteOpen: true } : { paletteOpen: false, paletteView: 'root' }),
+    setPaletteView: (paletteView) => set({ paletteView, paletteOpen: true }),
+    setViewMode: (viewMode) => set({ viewMode }),
+    selectTask: (selectedTaskId) => {
+      persistSelectedTaskId(selectedTaskId)
+      set({ selectedTaskId })
+    },
+    setAgentNote: (agentNote) => set({ agentNote }),
+    setAgentBusy: (agentBusy) => set({ agentBusy }),
+    pushToast: (toast) =>
+      set((state) => ({
+        toasts: [...state.toasts, { id: toast.id ?? crypto.randomUUID(), ...toast }]
+      })),
+    dismissToast: (id) => set((state) => ({ toasts: state.toasts.filter((t) => t.id !== id) })),
+    upsertSession: (info) =>
+      set((state) => ({
+        sessions: {
+          ...state.sessions,
+          [info.paneId]: {
+            ...info,
+            workTitle: info.workTitle ?? null,
+            workItems: info.workItems ?? []
+          }
+        }
+      })),
+    removeSession: (paneId) =>
+      set((state) => {
+        const { [paneId]: _removed, ...rest } = state.sessions
+        return { sessions: rest }
+      })
+  }))
+}
+
+const glyphWindow = window as Window & { __glyphUiStore?: ReturnType<typeof createUiStore> }
+export const useUi = glyphWindow.__glyphUiStore ?? createUiStore()
+glyphWindow.__glyphUiStore = useUi
 
 export function statusLabel(status: AgentStatus | undefined): string {
   switch (status) {

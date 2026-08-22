@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { Ipc } from '@shared/ipc'
 import type {
+  AgentContext,
   AppSettings,
   CreateMilestoneInput,
   CreateTaskInput,
@@ -28,6 +29,7 @@ const api = {
   },
   terminals: {
     ensure: (paneId: string) => ipcRenderer.invoke(Ipc.termEnsure, paneId),
+    replay: (paneId: string) => ipcRenderer.invoke(Ipc.termReplay, paneId) as Promise<string>,
     restart: (paneId: string) => ipcRenderer.invoke(Ipc.termRestart, paneId),
     kill: (paneId: string) => ipcRenderer.invoke(Ipc.termKill, paneId),
     write: (paneId: string, data: string) => ipcRenderer.invoke(Ipc.termWrite, paneId, data),
@@ -68,7 +70,8 @@ const api = {
     }
   },
   agent: {
-    run: (prompt: string) => ipcRenderer.invoke(Ipc.agentRun, prompt),
+    run: (prompt: string, context?: AgentContext) =>
+      ipcRenderer.invoke(Ipc.agentRun, prompt, context),
     reset: () => ipcRenderer.invoke(Ipc.agentReset),
     onEvent: (cb: (event: import('@shared/types').AgentStreamEvent) => void) => {
       const listener = (_: unknown, payload: import('@shared/types').AgentStreamEvent): void =>
@@ -83,10 +86,41 @@ const api = {
     get: () => ipcRenderer.invoke(Ipc.settingsGet) as Promise<AppSettings>,
     set: (patch: Partial<AppSettings>) =>
       ipcRenderer.invoke(Ipc.settingsSet, patch) as Promise<AppSettings>,
-    testMcp: (json?: string) => ipcRenderer.invoke(Ipc.mcpTest, json)
+    testMcp: (json?: string) => ipcRenderer.invoke(Ipc.mcpTest, json),
+    titleEngineStatus: () =>
+      ipcRenderer.invoke(Ipc.titleEngineStatus) as Promise<{
+        ready: boolean
+        loading: boolean
+        message: string
+      }>
   }
 }
 
 export type GlyphAPI = typeof api
 
 contextBridge.exposeInMainWorld('glyph', api)
+
+function watchRootForRecover(): void {
+  const root = document.getElementById('root')
+  if (!root) return
+  let hadUi = false
+  const key = 'glyph.rootReload'
+  new MutationObserver(() => {
+    if (root.childElementCount > 0) {
+      hadUi = true
+      sessionStorage.removeItem(key)
+      return
+    }
+    if (!hadUi || !document.body.classList.contains('app-ready')) return
+    const n = Number(sessionStorage.getItem(key) || '0')
+    if (n >= 1) return
+    sessionStorage.setItem(key, String(n + 1))
+    location.reload()
+  }).observe(root, { childList: true })
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', watchRootForRecover)
+} else {
+  watchRootForRecover()
+}

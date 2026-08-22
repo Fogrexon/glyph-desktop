@@ -44,6 +44,7 @@ export function createLauncherWindow(): BrowserWindow {
   launcher = new BrowserWindow({
     width: 460,
     height: 300,
+    show: false,
     resizable: false,
     maximizable: false,
     fullscreenable: false,
@@ -80,9 +81,9 @@ export function enterWorkspace(): BrowserWindow {
 
   if (workspace && !workspace.isDestroyed()) {
     workspace.setBounds({ x, y, width, height })
-    applyExclusive(workspace)
     workspace.show()
     workspace.focus()
+    applyFullscreen(workspace)
     if (launcher && !launcher.isDestroyed()) launcher.hide()
     return workspace
   }
@@ -92,9 +93,10 @@ export function enterWorkspace(): BrowserWindow {
     y,
     width,
     height,
+    show: false,
     frame: false,
     autoHideMenuBar: true,
-    fullscreen: true,
+    fullscreen: process.platform !== 'darwin',
     simpleFullscreen: process.platform === 'darwin',
     backgroundColor: '#0c0d10',
     title: 'Glyph',
@@ -105,14 +107,17 @@ export function enterWorkspace(): BrowserWindow {
     }
   })
 
-  applyExclusive(workspace)
-  workspace.on('ready-to-show', () => workspace?.show())
+  workspace.on('ready-to-show', () => {
+    if (!workspace || workspace.isDestroyed()) return
+    workspace.show()
+    applyFullscreen(workspace)
+  })
   workspace.on('restore', () => {
-    if (workspace && !workspace.isDestroyed()) applyExclusive(workspace)
+    if (workspace && !workspace.isDestroyed()) applyFullscreen(workspace)
   })
   workspace.on('show', () => {
     if (workspace && !workspace.isDestroyed() && !workspace.isMinimized()) {
-      applyExclusive(workspace)
+      applyFullscreen(workspace)
     }
   })
   workspace.webContents.setWindowOpenHandler((details) => {
@@ -129,19 +134,18 @@ export function enterWorkspace(): BrowserWindow {
   return workspace
 }
 
-function applyExclusive(win: BrowserWindow): void {
-  win.setAlwaysOnTop(true, 'screen-saver')
+function applyFullscreen(win: BrowserWindow): void {
+  win.setAlwaysOnTop(false)
+  win.setVisibleOnAllWorkspaces(false)
+  if (win.isKiosk()) win.setKiosk(false)
   if (process.platform === 'darwin') {
-    win.setSimpleFullScreen(true)
-  } else if (is.dev) {
-    win.setFullScreen(true)
-  } else {
-    win.setKiosk(true)
+    if (!win.isSimpleFullScreen()) win.setSimpleFullScreen(true)
+    return
   }
-  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+  if (!win.isFullScreen()) win.setFullScreen(true)
 }
 
-function releaseExclusive(win: BrowserWindow): void {
+function releaseFullscreen(win: BrowserWindow): void {
   if (win.isKiosk()) win.setKiosk(false)
   if (win.isSimpleFullScreen()) win.setSimpleFullScreen(false)
   if (win.isFullScreen()) win.setFullScreen(false)
@@ -149,12 +153,16 @@ function releaseExclusive(win: BrowserWindow): void {
   win.setVisibleOnAllWorkspaces(false)
 }
 
-/** Hide every window; PTYs and the workspace BrowserWindow stay alive. */
-export function hideToTray(): void {
+function hideWorkspace(): void {
   if (workspace && !workspace.isDestroyed()) {
-    releaseExclusive(workspace)
+    releaseFullscreen(workspace)
     workspace.hide()
   }
+}
+
+/** Hide every window; PTYs and the workspace BrowserWindow stay alive. */
+export function hideToTray(): void {
+  hideWorkspace()
   if (launcher && !launcher.isDestroyed()) {
     launcher.hide()
   }
@@ -162,10 +170,7 @@ export function hideToTray(): void {
 
 /** Tray / second-instance: always land on the launcher, keep terminals. */
 export function showLauncher(): void {
-  if (workspace && !workspace.isDestroyed() && workspace.isVisible()) {
-    releaseExclusive(workspace)
-    workspace.hide()
-  }
+  hideWorkspace()
   if (launcher && !launcher.isDestroyed()) {
     if (launcher.isMinimized()) launcher.restore()
     launcher.show()
@@ -177,10 +182,6 @@ export function showLauncher(): void {
 
 /** Leave fullscreen workspace → launcher. Do not kill PTYs or destroy the window. */
 export function exitWorkspace(): void {
-  if (workspace && !workspace.isDestroyed()) {
-    releaseExclusive(workspace)
-    workspace.hide()
-  }
   showLauncher()
 }
 

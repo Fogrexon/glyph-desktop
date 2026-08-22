@@ -1,6 +1,7 @@
 import { BrowserWindow, ipcMain } from 'electron'
 import { Ipc } from '@shared/ipc'
 import type {
+  AgentContext,
   AppSettings,
   CreateMilestoneInput,
   CreateTaskInput,
@@ -8,6 +9,7 @@ import type {
   UpdateTaskInput
 } from '@shared/types'
 import { resetWorkspaceAgent, runWorkspaceAgent, testMcpConfig } from './agent'
+import { titleEngineStatus } from './llm/local-title'
 import { loadSettings, patchSettings } from './settings'
 import {
   addMilestone,
@@ -24,6 +26,7 @@ import {
   getSession,
   killSession,
   listSessions,
+  replayOutput,
   resizeSession,
   restartSession,
   writeSession
@@ -70,6 +73,7 @@ export function registerIpc(): void {
   )
 
   ipcMain.handle(Ipc.termEnsure, (_e, paneId: string) => ensureSession(paneId))
+  ipcMain.handle(Ipc.termReplay, (_e, paneId: string) => replayOutput(paneId))
   ipcMain.handle(Ipc.termRestart, (_e, paneId: string) => restartSession(paneId))
   ipcMain.handle(Ipc.termKill, (_e, paneId: string) => {
     killSession(paneId, true)
@@ -83,10 +87,14 @@ export function registerIpc(): void {
   ipcMain.handle(Ipc.termGet, (_e, paneId: string) => getSession(paneId))
   ipcMain.handle(Ipc.termList, () => listSessions())
 
-  ipcMain.handle(Ipc.agentRun, async (event, prompt: string) =>
-    runWorkspaceAgent(prompt, (payload) => {
-      event.sender.send(Ipc.agentEvent, payload)
-    })
+  ipcMain.handle(Ipc.agentRun, async (event, prompt: string, context?: AgentContext) =>
+    runWorkspaceAgent(
+      prompt,
+      (payload) => {
+        event.sender.send(Ipc.agentEvent, payload)
+      },
+      context
+    )
   )
   ipcMain.handle(Ipc.agentReset, () => {
     resetWorkspaceAgent()
@@ -98,4 +106,5 @@ export function registerIpc(): void {
     const text = json ?? loadSettings().mcpServersJson
     return testMcpConfig(text)
   })
+  ipcMain.handle(Ipc.titleEngineStatus, () => titleEngineStatus())
 }

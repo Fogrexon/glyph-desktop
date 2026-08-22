@@ -1,10 +1,13 @@
 import { formatDeadline, shortenPath } from '@renderer/lib/format'
 import {
+  paneWorkItems,
+  paneWorkTitle,
   representativeSession,
-  taskActivities,
+  sessionsForTask,
   taskAgentStatus
 } from '@renderer/lib/sessions'
 import { statusLabel, useUi } from '@renderer/stores/ui'
+import { usePanes } from '@renderer/stores/panes'
 import { useWorkspace } from '@renderer/stores/workspace'
 
 export function TaskRail(): React.JSX.Element {
@@ -13,6 +16,8 @@ export function TaskRail(): React.JSX.Element {
   const select = useUi((s) => s.selectTask)
   const viewMode = useUi((s) => s.viewMode)
   const sessions = useUi((s) => s.sessions)
+  const focusPane = usePanes((s) => s.focusPane)
+  const activePane = usePanes((s) => (selected ? (s.activePane[selected] ?? selected) : null))
 
   return (
     <aside className="rail">
@@ -32,35 +37,73 @@ export function TaskRail(): React.JSX.Element {
           const session = representativeSession(sessions, task.id)
           const status = taskAgentStatus(sessions, task.id)
           const cwd = session?.cwd || task.lastCwd
-          const activities = taskActivities(sessions, task.id)
+          const panes = sessionsForTask(sessions, task.id)
+          const nested =
+            panes.length > 1 ||
+            panes.some(
+              (pane) =>
+                (pane.workItems?.length ?? 0) > 0 ||
+                pane.status === 'running' ||
+                pane.status === 'needs_human'
+            )
           return (
-            <button
+            <div
               key={task.id}
-              className={`task-row ${selected === task.id ? 'active' : ''}`}
-              onClick={() => select(task.id)}
-              title={cwd || undefined}
+              className={`task-card ${selected === task.id ? 'active' : ''}`}
             >
-              <div className="title">
-                <span className={`status-dot ${status ?? 'none'}`} />
-                <span>{task.title}</span>
-              </div>
-              <div className="meta">
-                <span className={task.overdue ? 'overdue' : ''}>
-                  {formatDeadline(task.nearestDeadline)}
-                </span>
-                <span>{statusLabel(status)}</span>
-              </div>
-              {activities.length > 0 && (
-                <div className="activities" aria-label="エージェントの作業">
-                  {activities.map((label) => (
-                    <span key={label} className="activity-chip">
-                      {label}
-                    </span>
-                  ))}
+              <button
+                type="button"
+                className="task-row-main"
+                onClick={() => select(task.id)}
+                title={cwd || undefined}
+              >
+                <div className="title">
+                  <span className={`status-dot ${status ?? 'none'}`} />
+                  <span>{task.title}</span>
                 </div>
+                <div className="meta">
+                  <span className={task.overdue ? 'overdue' : ''}>
+                    {formatDeadline(task.nearestDeadline)}
+                  </span>
+                  <span>{statusLabel(status)}</span>
+                </div>
+                {cwd && <div className="cwd">{shortenPath(cwd)}</div>}
+              </button>
+              {nested && (
+                <ul className="pane-work-list" aria-label="ターミナルの作業">
+                  {panes.map((pane) => {
+                    const title = paneWorkTitle(pane) || 'ターミナル'
+                    const items = paneWorkItems(pane)
+                    const paneActive = selected === task.id && activePane === pane.paneId
+                    return (
+                      <li
+                        key={pane.paneId}
+                        className={`pane-work ${paneActive ? 'active' : ''}`}
+                      >
+                        <button
+                          type="button"
+                          className="pane-work-head"
+                          onClick={() => {
+                            select(task.id)
+                            focusPane(task.id, pane.paneId)
+                          }}
+                        >
+                          <span className={`status-dot ${pane.status ?? 'none'}`} />
+                          <span className="pane-work-title">{title}</span>
+                        </button>
+                        {items.length > 0 && (
+                          <ul className="pane-work-items">
+                            {items.map((item) => (
+                              <li key={item}>{item}</li>
+                            ))}
+                          </ul>
+                        )}
+                      </li>
+                    )
+                  })}
+                </ul>
               )}
-              {cwd && <div className="cwd">{shortenPath(cwd)}</div>}
-            </button>
+            </div>
           )
         })}
       </div>

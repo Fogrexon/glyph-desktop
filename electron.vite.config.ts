@@ -12,7 +12,7 @@ export default defineConfig({
     resolve: { alias: sharedAlias },
     build: {
       rollupOptions: {
-        external: ['node-pty', 'sql.js']
+        external: ['node-pty', 'sql.js', '@huggingface/transformers']
       }
     }
   },

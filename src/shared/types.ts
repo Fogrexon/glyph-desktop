@@ -38,8 +38,10 @@ export interface TerminalSessionInfo {
   status: AgentStatus
   /** いま／直近のエージェントまたはコマンド名 */
   activity: string | null
-  /** タスク一覧に並べる短い作業ラベル（エージェント内 Tasks 優先） */
-  activities: string[]
+  /** このペインの作業タイトル */
+  workTitle: string | null
+  /** このペインの作業リスト */
+  workItems: string[]
   alive: boolean
 }
 
@@ -53,6 +55,8 @@ export interface AppSettings {
   mcpServersJson: string
   openrouterApiKey: string
   geminiApiKey: string
+  /** ヒューリスティック / アプリ内蔵の軽量モデル。ターミナル作業タイトル用 */
+  titleMode: 'heuristic' | 'local'
 }
 
 export interface CreateTaskInput {
@@ -73,14 +77,34 @@ export interface CreateMilestoneInput {
   workStartAt?: number | null
 }
 
+export interface AgentContext {
+  selectedTaskId: string | null
+  viewMode: TaskViewMode
+  activePaneId: string | null
+}
+
+export type AgentUiAction =
+  | { type: 'selectTask'; taskId: string }
+  | { type: 'setViewMode'; mode: TaskViewMode }
+  | { type: 'openSettings' }
+  | { type: 'openShortcuts' }
+  | { type: 'openTaskEditor' }
+  | { type: 'closePalette' }
+  | { type: 'splitPane'; dir: 'horizontal' | 'vertical' }
+  | { type: 'closePane' }
+  | { type: 'focusPane'; dir: 'left' | 'right' | 'up' | 'down' | 'next' | 'prev' }
+  | { type: 'toast'; text: string; kind?: 'info' | 'warn' | 'ok' }
+
 export interface AgentRunResult {
   text: string
   createdTaskId?: string
+  actions: AgentUiAction[]
 }
 
 export type AgentStreamEvent =
   | { type: 'delta'; text: string }
   | { type: 'tool'; name: string }
+  | { type: 'action'; action: AgentUiAction }
   | { type: 'done'; text: string; createdTaskId?: string }
   | { type: 'error'; message: string }
 

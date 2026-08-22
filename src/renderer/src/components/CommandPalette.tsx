@@ -1,13 +1,20 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { Command } from 'cmdk'
 import { COMMANDS } from '@shared/commands'
-import { GLYPH_SELF_TASK_ID } from '@shared/ids'
-import type { CommandDef } from '@shared/types'
+import type { CommandDef, TerminalSessionInfo } from '@shared/types'
 import { fuzzyScore } from '@renderer/lib/fuzzy'
-import { formatDeadline } from '@renderer/lib/format'
+import { formatDeadline, relativeToGit, shortenPath } from '@renderer/lib/format'
+import { currentAgentContext, openGlyphSelf, resetAgentChat } from '@renderer/lib/workspaceOps'
+import { SettingsPalette } from './palette/SettingsPalette'
+import { ShortcutsPalette } from './palette/ShortcutsPalette'
+import { TaskNewPalette } from './palette/TaskNewPalette'
+import { ErrorBoundary } from './ErrorBoundary'
 import { useAgentChat } from '@renderer/stores/agentChat'
+import { useKeymap } from '@renderer/stores/keymap'
 import { statusLabel, useUi } from '@renderer/stores/ui'
 import { refreshTasks, useWorkspace } from '@renderer/stores/workspace'
+import { usePanes } from '@renderer/stores/panes'
+import { restoreTermOutput } from '@renderer/lib/termHosts'
 
 const RECENTS_KEY = 'glyph.recentCommands'
 
@@ -25,7 +32,7 @@ function pushRecent(id: string): void {
 }
 
 function parseQuery(raw: string): {
-  mode: 'command' | 'mixed'
+  mode: 'command' | 'mixed' | 'search'
   commandQuery: string
   arg: string
   rest: string
@@ -42,7 +49,28 @@ function parseQuery(raw: string): {
       rest: body
     }
   }
+  if (trimmed.startsWith('?') || trimmed.startsWith('？')) {
+    return { mode: 'search', commandQuery: '', arg: '', rest: trimmed.slice(1).trim() }
+  }
   return { mode: 'mixed', commandQuery: trimmed, arg: '', rest: trimmed }
+}
+
+function gitBasename(gitRoot: string | null | undefined): string {
+  if (!gitRoot) return ''
+  return gitRoot.split(/[/\\]/).filter(Boolean).pop() ?? ''
+}
+
+function terminalPath(session: TerminalSessionInfo): string {
+  if (session.cwd) return relativeToGit(session.cwd, session.gitRoot)
+  if (session.lastCwd) return shortenPath(session.lastCwd)
+  return ''
+}
+
+function terminalSubtitle(session: TerminalSessionInfo): string {
+  const title = session.workTitle || session.activity
+  return ['ターミナル', terminalPath(session) || null, title, statusLabel(session.status)]
+    .filter(Boolean)
+    .join(' · ')
 }
 
 interface Ranked<T> {
@@ -74,9 +102,57 @@ export function CommandPalette(): React.JSX.Element | null {
 }
 
 function PaletteDialog(): React.JSX.Element {
+  const view = useUi((s) => s.paletteView)
+  const setView = useUi((s) => s.setPaletteView)
   const setOpen = useUi((s) => s.setPaletteOpen)
-  const setSettings = useUi((s) => s.setSettingsOpen)
-  const setEditor = useUi((s) => s.setEditorOpen)
+
+  useEffect(() => {
+    return () => useKeymap.getState().cancelRecording()
+  }, [])
+
+  useEffect(() => {
+    const stealBack = (event: FocusEvent): void => {
+      const target = event.target
+      if (!(target instanceof HTMLElement)) return
+      if (target.closest('.palette')) return
+      const input = document.querySelector<HTMLInputElement>('.palette [cmdk-input]')
+      input?.focus()
+    }
+    document.addEventListener('focusin', stealBack, true)
+    return () => document.removeEventListener('focusin', stealBack, true)
+  }, [])
+
+  return (
+    <div className="palette-overlay" onMouseDown={() => setOpen(false)}>
+      <div className="palette" onMouseDown={(e) => e.stopPropagation()}>
+        {view === 'root' && (
+          <ErrorBoundary compact label="パレット" resetKey="root">
+            <RootPalette />
+          </ErrorBoundary>
+        )}
+        {view === 'shortcuts' && (
+          <ErrorBoundary compact label="ショートカット" resetKey="shortcuts">
+            <ShortcutsPalette onBack={() => setView('root')} />
+          </ErrorBoundary>
+        )}
+        {view === 'settings' && (
+          <ErrorBoundary compact label="設定" resetKey="settings">
+            <SettingsPalette onBack={() => setView('root')} />
+          </ErrorBoundary>
+        )}
+        {view === 'task-new' && (
+          <ErrorBoundary compact label="タスク作成" resetKey="task-new">
+            <TaskNewPalette onBack={() => setView('root')} />
+          </ErrorBoundary>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function RootPalette(): React.JSX.Element {
+  const setOpen = useUi((s) => s.setPaletteOpen)
+  const setView = useUi((s) => s.setPaletteView)
   const viewMode = useUi((s) => s.viewMode)
   const setViewMode = useUi((s) => s.setViewMode)
   const selectedTaskId = useUi((s) => s.selectedTaskId)
@@ -102,22 +178,12 @@ function PaletteDialog(): React.JSX.Element {
     if (el) el.scrollTop = el.scrollHeight
   }, [turns, streaming])
 
-  useEffect(() => {
-    const stealBack = (event: FocusEvent): void => {
-      const target = event.target
-      if (!(target instanceof HTMLElement)) return
-      if (target.closest('.palette')) return
-      inputRef.current?.focus()
-    }
-    document.addEventListener('focusin', stealBack, true)
-    return () => document.removeEventListener('focusin', stealBack, true)
-  }, [])
-
   const parsed = useMemo(() => parseQuery(value), [value])
 
   const commands = useMemo(() => {
+    if (parsed.mode === 'search') return []
     const q = parsed.mode === 'command' ? parsed.commandQuery : parsed.rest
-    const ranked = rankCommands(parsed.mode === 'command' ? parsed.commandQuery : q, COMMANDS)
+    const ranked = rankCommands(q, COMMANDS)
     if (parsed.mode === 'command') return ranked
     if (!q) {
       const recents = loadRecents()
@@ -130,16 +196,9 @@ function PaletteDialog(): React.JSX.Element {
   }, [parsed])
 
   const taskHits = useMemo(() => {
+    if (parsed.mode === 'search') return []
     if (parsed.mode === 'command' && !listingTasks) return []
     const q = listingTasks ? parsed.arg || parsed.rest : parsed.rest
-    if (
-      parsed.mode === 'command' &&
-      !listingTasks &&
-      parsed.commandQuery &&
-      !parsed.commandQuery.startsWith('task')
-    ) {
-      return []
-    }
     return tasks
       .map((task) => ({
         item: task,
@@ -149,6 +208,52 @@ function PaletteDialog(): React.JSX.Element {
       .sort((a, b) => b.score - a.score)
       .slice(0, 12)
   }, [parsed, tasks, listingTasks])
+
+  const searchHits = useMemo(() => {
+    if (parsed.mode !== 'search') return []
+    const q = parsed.rest
+    const taskById = new Map(tasks.map((task) => [task.id, task]))
+    const rankedTasks = tasks.map((task) => ({
+      kind: 'task' as const,
+      id: `search-task-${task.id}`,
+      score: fuzzyScore(
+        q,
+        task.title,
+        task.goal,
+        task.lastCwd ?? '',
+        ...task.milestones.map((m) => m.title)
+      ),
+      task
+    }))
+    const rankedTerms = Object.values(sessions).map((session) => {
+      const task = taskById.get(session.taskId)
+      const path = terminalPath(session)
+      return {
+        kind: 'term' as const,
+        id: `search-term-${session.paneId}`,
+        score: fuzzyScore(
+          q,
+          task?.title ?? '',
+          task?.goal ?? '',
+          path,
+          session.cwd,
+          session.gitRoot ?? '',
+          gitBasename(session.gitRoot),
+          session.lastCwd ?? '',
+          session.workTitle ?? '',
+          session.activity ?? '',
+          statusLabel(session.status),
+          ...(session.workItems ?? [])
+        ),
+        session,
+        task
+      }
+    })
+    return [...rankedTasks, ...rankedTerms]
+      .filter((x) => (q ? x.score >= 0 : true))
+      .sort((a, b) => b.score - a.score || (a.kind === 'task' ? -1 : 1))
+      .slice(0, 24)
+  }, [parsed, tasks, sessions])
 
   const runNatural = async (prompt: string): Promise<void> => {
     const text = prompt.trim()
@@ -162,7 +267,7 @@ function PaletteDialog(): React.JSX.Element {
       if (!window.glyph.agent?.run) {
         throw new Error('エージェントがまだ接続されていません。アプリを再起動してください。')
       }
-      const result = await window.glyph.agent.run(text)
+      const result = await window.glyph.agent.run(text, currentAgentContext())
       if (useAgentChat.getState().busy) {
         useAgentChat.getState().finishAssistant(result.text || '完了しました。')
         setAgentBusy(false)
@@ -204,15 +309,19 @@ function PaletteDialog(): React.JSX.Element {
           await refreshTasks(viewMode)
           selectTask(created.id)
           pushToast({ text: `「${created.title}」を作成`, kind: 'ok' })
+          setOpen(false)
         } else {
-          setEditor(true)
+          setView('task-new')
         }
-        setOpen(false)
         return
       }
       case 'task.list':
         setListingTasks(true)
         setValue('> task.open ')
+        return
+      case 'search.open':
+        setListingTasks(false)
+        setValue(arg ? `? ${arg}` : '? ')
         return
       case 'task.open': {
         const target = arg
@@ -298,21 +407,24 @@ function PaletteDialog(): React.JSX.Element {
         return
       case 'settings.open':
       case 'provider.set-model':
-        setSettings(true)
-        setOpen(false)
+        setView('settings')
+        return
+      case 'shortcuts.open':
+        setView('shortcuts')
         return
       case 'chat.reset':
-        useAgentChat.getState().reset()
-        void window.glyph.agent?.reset()
+        resetAgentChat()
         pushToast({ text: '会話をリセットしました', kind: 'ok' })
         return
       case 'glyph.dev':
-        selectTask(GLYPH_SELF_TASK_ID)
+        openGlyphSelf()
         await refreshTasks(viewMode)
-        setOpen(false)
         return
       case 'term.pwd': {
-        const session = selectedTaskId ? sessions[selectedTaskId] : undefined
+        const paneId = selectedTaskId
+          ? (usePanes.getState().activePane[selectedTaskId] ?? selectedTaskId)
+          : null
+        const session = paneId ? sessions[paneId] : undefined
         pushToast({
           text: session?.cwd || 'ターミナルがまだ起動していません',
           kind: 'info'
@@ -320,11 +432,29 @@ function PaletteDialog(): React.JSX.Element {
         setOpen(false)
         return
       }
-      case 'term.restart':
-        if (!selectedTaskId) return
-        await window.glyph.terminals.restart(selectedTaskId)
+      case 'term.split-right':
+        if (selectedTaskId) usePanes.getState().splitActive(selectedTaskId, 'horizontal')
         setOpen(false)
         return
+      case 'term.split-down':
+        if (selectedTaskId) usePanes.getState().splitActive(selectedTaskId, 'vertical')
+        setOpen(false)
+        return
+      case 'term.close-pane':
+        if (!selectedTaskId) return
+        if (!usePanes.getState().closeActive(selectedTaskId)) {
+          pushToast({ text: '最後のペインは閉じられません', kind: 'info' })
+        }
+        setOpen(false)
+        return
+      case 'term.restart': {
+        if (!selectedTaskId) return
+        const paneId = usePanes.getState().activePane[selectedTaskId] ?? selectedTaskId
+        await window.glyph.terminals.restart(paneId)
+        await restoreTermOutput(paneId)
+        setOpen(false)
+        return
+      }
       case 'workspace.exit-fullscreen':
         await window.glyph.window.exitWorkspace()
         return
@@ -343,26 +473,22 @@ function PaletteDialog(): React.JSX.Element {
   const showChat = turns.length > 0 || streaming.length > 0 || chatBusy
 
   return (
-    <div
-      className="palette-overlay"
-      onMouseDown={() => setOpen(false)}
-      onKeyDownCapture={submitMixed}
-    >
-      <div className="palette" onMouseDown={(e) => e.stopPropagation()}>
-        {showChat && (
-          <div className="agent-chat" ref={chatRef}>
-            {turns.map((turn) => (
-              <div key={turn.id} className={`agent-turn ${turn.role}`}>
-                {turn.text}
-              </div>
-            ))}
-            {(streaming || chatBusy) && (
-              <div className={`agent-turn assistant${streaming ? ' streaming' : ''}`}>
-                {streaming || '考えています…'}
-              </div>
-            )}
-          </div>
-        )}
+    <>
+      {showChat && (
+        <div className="agent-chat" ref={chatRef}>
+          {turns.map((turn) => (
+            <div key={turn.id} className={`agent-turn ${turn.role}`}>
+              {turn.text}
+            </div>
+          ))}
+          {(streaming || chatBusy) && (
+            <div className={`agent-turn assistant${streaming ? ' streaming' : ''}`}>
+              {streaming || '考えています…'}
+            </div>
+          )}
+        </div>
+      )}
+      <div onKeyDownCapture={submitMixed}>
         <Command
           shouldFilter={false}
           loop
@@ -377,12 +503,20 @@ function PaletteDialog(): React.JSX.Element {
             value={value}
             onValueChange={setValue}
             placeholder={
-              showChat ? '続けて指示する / > でコマンド' : '指示する / > でコマンド / タスク名'
+              parsed.mode === 'search'
+                ? 'タスク名・cwd・作業で検索'
+                : showChat
+                  ? '続けて指示する / ? 検索 / > コマンド'
+                  : '設定・分割・タスク… を指示 / ? で検索 / > でコマンド'
             }
           />
           <Command.List>
             <Command.Empty>
-              {chatBusy ? '考えています…' : '一致なし。自然言語で送るか > でコマンドを。'}
+              {chatBusy
+                ? '考えています…'
+                : parsed.mode === 'search'
+                  ? '一致なし。タスク名、cwd、作業内容で検索。'
+                  : '一致なし。自然言語で送るか ? 検索 / > コマンド。'}
             </Command.Empty>
             {showNl && (
               <Command.Group heading="自然言語">
@@ -392,7 +526,7 @@ function PaletteDialog(): React.JSX.Element {
                 </Command.Item>
               </Command.Group>
             )}
-            {parsed.mode !== 'command' && !parsed.rest && (
+            {parsed.mode === 'mixed' && !parsed.rest && (
               <Command.Group heading="進行中">
                 {Object.values(sessions)
                   .filter((s) => s.status === 'running' || s.status === 'needs_human')
@@ -400,19 +534,23 @@ function PaletteDialog(): React.JSX.Element {
                     const task = tasks.find((t) => t.id === s.taskId)
                     return (
                       <Command.Item
-                        key={`live-${s.taskId}`}
-                        value={`live-${s.taskId}`}
+                        key={`live-${s.paneId}`}
+                        value={`live-${s.paneId}`}
                         onSelect={() => {
                           selectTask(s.taskId)
+                          usePanes.getState().focusPane(s.taskId, s.paneId)
                           setOpen(false)
                         }}
                       >
-                        <span>{task?.title ?? s.taskId}</span>
+                        <span>{s.workTitle || task?.title || s.taskId}</span>
                         <span className="item-sub">
-                          {(s.activities?.length
-                            ? s.activities.join(' · ')
-                            : s.activity) || statusLabel(s.status)}
-                          {s.activities?.length || s.activity ? ` · ${statusLabel(s.status)}` : ''}
+                          {[
+                            task && s.workTitle ? task.title : null,
+                            s.workItems?.[0],
+                            statusLabel(s.status)
+                          ]
+                            .filter(Boolean)
+                            .join(' · ')}
                         </span>
                       </Command.Item>
                     )
@@ -439,30 +577,68 @@ function PaletteDialog(): React.JSX.Element {
                 ))}
               </Command.Group>
             )}
-            <Command.Group heading={parsed.mode === 'command' ? 'コマンド' : 'コマンド候補'}>
-              {commands.map(({ item }) => (
-                <Command.Item
-                  key={item.id}
-                  value={item.id}
-                  onSelect={() => void runCommand(item.id, parsed.arg)}
-                >
-                  <span>
-                    {item.title}
-                    <span className="item-sub">
-                      {' '}
-                      {'>'} {item.id}
+            {parsed.mode === 'search' && searchHits.length > 0 && (
+              <Command.Group heading="検索">
+                {searchHits.map((hit) =>
+                  hit.kind === 'task' ? (
+                    <Command.Item
+                      key={hit.id}
+                      value={hit.id}
+                      onSelect={() => {
+                        selectTask(hit.task.id)
+                        setOpen(false)
+                      }}
+                    >
+                      <span>{hit.task.title}</span>
+                      <span className="item-sub">
+                        タスク
+                        {hit.task.overdue ? ' · 超過' : ''} ·{' '}
+                        {formatDeadline(hit.task.nearestDeadline)}
+                      </span>
+                    </Command.Item>
+                  ) : (
+                    <Command.Item
+                      key={hit.id}
+                      value={hit.id}
+                      onSelect={() => {
+                        selectTask(hit.session.taskId)
+                        usePanes.getState().focusPane(hit.session.taskId, hit.session.paneId)
+                        setOpen(false)
+                      }}
+                    >
+                      <span>{hit.session.workTitle || hit.task?.title || hit.session.taskId}</span>
+                      <span className="item-sub">{terminalSubtitle(hit.session)}</span>
+                    </Command.Item>
+                  )
+                )}
+              </Command.Group>
+            )}
+            {parsed.mode !== 'search' && (
+              <Command.Group heading={parsed.mode === 'command' ? 'コマンド' : 'コマンド候補'}>
+                {commands.map(({ item }) => (
+                  <Command.Item
+                    key={item.id}
+                    value={item.id}
+                    onSelect={() => void runCommand(item.id, parsed.arg)}
+                  >
+                    <span>
+                      {item.title}
+                      <span className="item-sub">
+                        {' '}
+                        {'>'} {item.id}
+                      </span>
                     </span>
-                  </span>
-                  <span className="item-sub">{item.subtitle}</span>
-                </Command.Item>
-              ))}
-            </Command.Group>
+                    <span className="item-sub">{item.subtitle}</span>
+                  </Command.Item>
+                ))}
+              </Command.Group>
+            )}
           </Command.List>
         </Command>
-        {showChat && (
-          <div className="agent-note">Enter で続きを送る · {'>'} chat.reset で会話をリセット</div>
-        )}
       </div>
-    </div>
+      {showChat && (
+        <div className="agent-note">Enter で続きを送る · {'>'} chat.reset で会話をリセット</div>
+      )}
+    </>
   )
 }
