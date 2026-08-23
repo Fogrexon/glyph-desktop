@@ -3,7 +3,7 @@ import type { AgentContext, AgentUiAction } from '@shared/types'
 import { useAgentChat } from '@renderer/stores/agentChat'
 import { usePanes } from '@renderer/stores/panes'
 import { useUi } from '@renderer/stores/ui'
-import { refreshTasks } from '@renderer/stores/workspace'
+import { refreshTasks, useWorkspace } from '@renderer/stores/workspace'
 
 export function currentAgentContext(): AgentContext {
   const ui = useUi.getState()
@@ -65,6 +65,16 @@ export function applyWorkspaceAction(action: AgentUiAction): void {
     default:
       return
   }
+}
+
+export function cycleSelectedTask(delta: 1 | -1): void {
+  const tasks = useWorkspace.getState().tasks
+  if (tasks.length === 0) return
+  const ui = useUi.getState()
+  const idx = tasks.findIndex((t) => t.id === ui.selectedTaskId)
+  const from = idx < 0 ? (delta > 0 ? -1 : 0) : idx
+  const next = tasks[(from + delta + tasks.length) % tasks.length]
+  if (next) ui.selectTask(next.id)
 }
 
 export function openGlyphSelf(): void {

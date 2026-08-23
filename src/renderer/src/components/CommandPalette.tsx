@@ -4,15 +4,21 @@ import { COMMANDS } from '@shared/commands'
 import type { CommandDef, TerminalSessionInfo } from '@shared/types'
 import { fuzzyScore } from '@renderer/lib/fuzzy'
 import { formatDeadline, relativeToGit, shortenPath } from '@renderer/lib/format'
-import { currentAgentContext, openGlyphSelf, resetAgentChat } from '@renderer/lib/workspaceOps'
+import {
+  currentAgentContext,
+  cycleSelectedTask,
+  openGlyphSelf,
+  resetAgentChat
+} from '@renderer/lib/workspaceOps'
 import { TaskNewPalette } from './palette/TaskNewPalette'
 import { ErrorBoundary } from './ErrorBoundary'
 import { useAgentChat } from '@renderer/stores/agentChat'
 import { useKeymap } from '@renderer/stores/keymap'
-import { statusLabel, useUi } from '@renderer/stores/ui'
+import { statusLabel, useUi, type PaletteIntent } from '@renderer/stores/ui'
 import { refreshTasks, useWorkspace } from '@renderer/stores/workspace'
-import { usePanes } from '@renderer/stores/panes'
+import { usePanes, activeTabForTask } from '@renderer/stores/panes'
 import { restoreTermOutput } from '@renderer/lib/termHosts'
+import { omniboxUrl } from '@renderer/lib/urls'
 
 const RECENTS_KEY = 'glyph.recentCommands'
 
@@ -65,7 +71,7 @@ function terminalPath(session: TerminalSessionInfo): string {
 }
 
 function terminalSubtitle(session: TerminalSessionInfo): string {
-  const title = session.workTitle || session.activity
+  const title = session.workTitle
   return ['ターミナル', terminalPath(session) || null, title, statusLabel(session.status)]
     .filter(Boolean)
     .join(' · ')
@@ -93,6 +99,12 @@ function rankCommands(query: string, commands: CommandDef[]): Ranked<CommandDef>
     .sort((a, b) => b.score - a.score)
 }
 
+function initialPaletteValue(intent: PaletteIntent | undefined): string {
+  if (intent === 'command') return '> '
+  if (intent === 'search') return '? '
+  return ''
+}
+
 export function CommandPalette(): React.JSX.Element | null {
   const open = useUi((s) => s.paletteOpen)
   if (!open) return null
@@ -101,6 +113,7 @@ export function CommandPalette(): React.JSX.Element | null {
 
 function PaletteDialog(): React.JSX.Element {
   const view = useUi((s) => s.paletteView)
+  const intent = useUi((s) => s.paletteIntent ?? 'nl')
   const setView = useUi((s) => s.setPaletteView)
   const setOpen = useUi((s) => s.setPaletteOpen)
 
@@ -124,8 +137,8 @@ function PaletteDialog(): React.JSX.Element {
     <div className="palette-overlay" onMouseDown={() => setOpen(false)}>
       <div className="palette" onMouseDown={(e) => e.stopPropagation()}>
         {view === 'root' && (
-          <ErrorBoundary compact label="パレット" resetKey="root">
-            <RootPalette />
+          <ErrorBoundary compact label="パレット" resetKey={`root:${intent}`}>
+            <RootPalette key={intent} />
           </ErrorBoundary>
         )}
         {view === 'task-new' && (
@@ -152,13 +165,19 @@ function RootPalette(): React.JSX.Element {
   const streaming = useAgentChat((s) => s.streaming)
   const chatBusy = useAgentChat((s) => s.busy)
   const tasks = useWorkspace((s) => s.tasks)
-  const [value, setValue] = useState('')
+  const [value, setValue] = useState(() => initialPaletteValue(useUi.getState().paletteIntent))
   const [listingTasks, setListingTasks] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const chatRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    requestAnimationFrame(() => inputRef.current?.focus())
+    requestAnimationFrame(() => {
+      const el = inputRef.current
+      if (!el) return
+      el.focus()
+      const n = el.value.length
+      el.setSelectionRange(n, n)
+    })
   }, [])
 
   useEffect(() => {
@@ -307,6 +326,10 @@ function RootPalette(): React.JSX.Element {
         setListingTasks(true)
         setValue('> task.open ')
         return
+      case 'commands.open':
+        setListingTasks(false)
+        setValue(arg ? `> ${arg}` : '> ')
+        return
       case 'search.open':
         setListingTasks(false)
         setValue(arg ? `? ${arg}` : '? ')
@@ -326,6 +349,14 @@ function RootPalette(): React.JSX.Element {
         setOpen(false)
         return
       }
+      case 'task.next':
+        cycleSelectedTask(1)
+        setOpen(false)
+        return
+      case 'task.prev':
+        cycleSelectedTask(-1)
+        setOpen(false)
+        return
       case 'task.complete': {
         const idToClose =
           (arg
@@ -409,9 +440,8 @@ function RootPalette(): React.JSX.Element {
         await refreshTasks(viewMode)
         return
       case 'term.pwd': {
-        const paneId = selectedTaskId
-          ? (usePanes.getState().activePane[selectedTaskId] ?? selectedTaskId)
-          : null
+        const tab = activeTabForTask(selectedTaskId)
+        const paneId = tab?.kind === 'terminal' ? tab.id : null
         const session = paneId ? sessions[paneId] : undefined
         pushToast({
           text: session?.cwd || 'ターミナルがまだ起動していません',
@@ -428,6 +458,51 @@ function RootPalette(): React.JSX.Element {
         if (selectedTaskId) usePanes.getState().splitActive(selectedTaskId, 'vertical')
         setOpen(false)
         return
+      case 'term.new-tab':
+        if (selectedTaskId) usePanes.getState().addTab(selectedTaskId, 'terminal')
+        setOpen(false)
+        return
+      case 'browser.split-right':
+        if (selectedTaskId) {
+          usePanes
+            .getState()
+            .splitActive(
+              selectedTaskId,
+              'horizontal',
+              'browser',
+              arg ? omniboxUrl(arg) : 'about:blank'
+            )
+        }
+        setOpen(false)
+        return
+      case 'browser.split-down':
+        if (selectedTaskId) {
+          usePanes
+            .getState()
+            .splitActive(
+              selectedTaskId,
+              'vertical',
+              'browser',
+              arg ? omniboxUrl(arg) : 'about:blank'
+            )
+        }
+        setOpen(false)
+        return
+      case 'browser.new-tab':
+        if (selectedTaskId) {
+          usePanes
+            .getState()
+            .addTab(selectedTaskId, 'browser', arg ? omniboxUrl(arg) : 'about:blank')
+        }
+        setOpen(false)
+        return
+      case 'pane.close-tab':
+        if (!selectedTaskId) return
+        if (!usePanes.getState().closeActiveTab(selectedTaskId)) {
+          pushToast({ text: '最後のペインは閉じられません', kind: 'info' })
+        }
+        setOpen(false)
+        return
       case 'term.close-pane':
         if (!selectedTaskId) return
         if (!usePanes.getState().closeActive(selectedTaskId)) {
@@ -437,9 +512,14 @@ function RootPalette(): React.JSX.Element {
         return
       case 'term.restart': {
         if (!selectedTaskId) return
-        const paneId = usePanes.getState().activePane[selectedTaskId] ?? selectedTaskId
+        const tab = activeTabForTask(selectedTaskId)
+        const paneId = tab?.kind === 'terminal' ? tab.id : null
+        if (!paneId) {
+          pushToast({ text: 'ターミナルタブを選んでください', kind: 'info' })
+          return
+        }
         await window.glyph.terminals.restart(paneId)
-        await restoreTermOutput(paneId)
+        await restoreTermOutput(paneId, true)
         setOpen(false)
         return
       }
@@ -458,7 +538,7 @@ function RootPalette(): React.JSX.Element {
   }
 
   const showNl = parsed.mode === 'mixed' && parsed.rest.length > 0
-  const showChat = turns.length > 0 || streaming.length > 0 || chatBusy
+  const showChat = parsed.mode === 'mixed' && (turns.length > 0 || streaming.length > 0 || chatBusy)
 
   return (
     <>
@@ -493,9 +573,11 @@ function RootPalette(): React.JSX.Element {
             placeholder={
               parsed.mode === 'search'
                 ? 'タスク名・cwd・作業で検索'
-                : showChat
-                  ? '続けて指示する / ? 検索 / > コマンド'
-                  : '設定・分割・タスク… を指示 / ? で検索 / > でコマンド'
+                : parsed.mode === 'command'
+                  ? 'コマンド名を入力'
+                  : showChat
+                    ? '続けて指示する / ? 検索 / > コマンド'
+                    : '設定・分割・タスク… を指示 / ? で検索 / > でコマンド'
             }
           />
           <Command.List>
@@ -504,7 +586,9 @@ function RootPalette(): React.JSX.Element {
                 ? '考えています…'
                 : parsed.mode === 'search'
                   ? '一致なし。タスク名、cwd、作業内容で検索。'
-                  : '一致なし。自然言語で送るか ? 検索 / > コマンド。'}
+                  : parsed.mode === 'command'
+                    ? '一致なし。コマンド名を入力。'
+                    : '一致なし。自然言語で送るか ? 検索 / > コマンド。'}
             </Command.Empty>
             {showNl && (
               <Command.Group heading="自然言語">
@@ -526,7 +610,7 @@ function RootPalette(): React.JSX.Element {
                         value={`live-${s.paneId}`}
                         onSelect={() => {
                           selectTask(s.taskId)
-                          usePanes.getState().focusPane(s.taskId, s.paneId)
+                          usePanes.getState().selectTab(s.taskId, s.paneId)
                           setOpen(false)
                         }}
                       >
@@ -590,7 +674,7 @@ function RootPalette(): React.JSX.Element {
                       value={hit.id}
                       onSelect={() => {
                         selectTask(hit.session.taskId)
-                        usePanes.getState().focusPane(hit.session.taskId, hit.session.paneId)
+                        usePanes.getState().selectTab(hit.session.taskId, hit.session.paneId)
                         setOpen(false)
                       }}
                     >

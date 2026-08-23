@@ -124,3 +124,18 @@ export interface CommandDef {
   keywords: string[]
   group: 'task' | 'view' | 'term' | 'app'
 }
+
+export interface BrowserBounds {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+export interface BrowserChord {
+  key: string
+  ctrl: boolean
+  shift: boolean
+  alt: boolean
+  meta: boolean
+}

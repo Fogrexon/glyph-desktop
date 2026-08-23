@@ -5,12 +5,23 @@ import {
   SHORTCUT_DEFS,
   chordsEqual,
   conflictingActions,
+  defaultKeymap,
   formatChord,
-  type ShortcutAction
+  mergeKeymap,
+  type ShortcutAction,
+  type ShortcutDef
 } from '@renderer/lib/keymap'
 import { defaultModelHint } from '@renderer/lib/models'
 import { useKeymap } from '@renderer/stores/keymap'
 import { useUi } from '@renderer/stores/ui'
+
+const SHORTCUT_GROUP_HEADINGS: Record<ShortcutDef['group'], string> = {
+  app: 'アプリ',
+  task: 'タスク',
+  term: 'ターミナル'
+}
+
+const SHORTCUT_GROUP_ORDER: ShortcutDef['group'][] = ['app', 'task', 'term']
 
 const PROVIDERS: { id: LlmProviderId; title: string }[] = [
   { id: 'openrouter', title: 'OpenRouter' },
@@ -216,7 +227,8 @@ function GeneralPane(): React.JSX.Element {
 }
 
 function ShortcutsPane(): React.JSX.Element {
-  const map = useKeymap((s) => s.map)
+  const rawMap = useKeymap((s) => s.map)
+  const map = useMemo(() => mergeKeymap(rawMap), [rawMap])
   const recording = useKeymap((s) => s.recording)
   const startRecording = useKeymap((s) => s.startRecording)
   const resetAll = useKeymap((s) => s.resetAll)
@@ -252,16 +264,25 @@ function ShortcutsPane(): React.JSX.Element {
   }, [recording, pushToast])
 
   const groups = useMemo(() => {
-    const match = (group: 'app' | 'term'): (typeof SHORTCUT_DEFS)[number][] =>
+    const match = (group: ShortcutDef['group']): ShortcutDef[] =>
       SHORTCUT_DEFS.filter((d) => d.group === group)
         .map((item) => ({
           item,
-          score: fuzzyScore(query, item.label, item.action, formatChord(map[item.action]))
+          score: fuzzyScore(
+            query,
+            item.label,
+            item.action,
+            formatChord(map[item.action] ?? defaultKeymap()[item.action]),
+            ...(item.keywords ?? [])
+          )
         }))
         .filter((x) => (query ? x.score >= 0 : true))
         .sort((a, b) => b.score - a.score)
         .map((x) => x.item)
-    return { app: match('app'), term: match('term') }
+    return Object.fromEntries(SHORTCUT_GROUP_ORDER.map((group) => [group, match(group)])) as Record<
+      ShortcutDef['group'],
+      ShortcutDef[]
+    >
   }, [query, map])
 
   return (
@@ -277,20 +298,16 @@ function ShortcutsPane(): React.JSX.Element {
         onChange={(e) => setQuery(e.target.value)}
         placeholder="ショートカットを検索"
       />
-      <ShortcutGroup
-        heading="アプリ"
-        items={groups.app}
-        recording={recording}
-        onPick={startRecording}
-        onReset={resetAction}
-      />
-      <ShortcutGroup
-        heading="ターミナル"
-        items={groups.term}
-        recording={recording}
-        onPick={startRecording}
-        onReset={resetAction}
-      />
+      {SHORTCUT_GROUP_ORDER.map((group) => (
+        <ShortcutGroup
+          key={group}
+          heading={SHORTCUT_GROUP_HEADINGS[group]}
+          items={groups[group] ?? []}
+          recording={recording}
+          onPick={startRecording}
+          onReset={resetAction}
+        />
+      ))}
       <div className="settings-actions">
         <button
           type="button"
@@ -315,13 +332,14 @@ function ShortcutGroup({
   onReset
 }: {
   heading: string
-  items: (typeof SHORTCUT_DEFS)[number][]
+  items: ShortcutDef[]
   recording: ShortcutAction | null
   onPick: (action: ShortcutAction) => void
   onReset: (action: ShortcutAction) => void
 }): React.JSX.Element | null {
-  const map = useKeymap((s) => s.map)
-  if (items.length === 0) return null
+  const rawMap = useKeymap((s) => s.map)
+  const map = mergeKeymap(rawMap)
+  if (!items?.length) return null
   return (
     <div className="shortcut-group">
       <h2>{heading}</h2>
@@ -330,7 +348,11 @@ function ShortcutGroup({
           <li key={def.action}>
             <button type="button" className="shortcut-row" onClick={() => onPick(def.action)}>
               <span>{def.label}</span>
-              <kbd>{recording === def.action ? '入力待ち' : formatChord(map[def.action])}</kbd>
+              <kbd>
+                {recording === def.action
+                  ? '入力待ち'
+                  : formatChord(map[def.action] ?? defaultKeymap()[def.action])}
+              </kbd>
             </button>
             {recording === def.action && (
               <button type="button" className="ghost shortcut-reset" onClick={() => onReset(def.action)}>

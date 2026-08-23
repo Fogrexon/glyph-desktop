@@ -1,8 +1,16 @@
 export type ShortcutAction =
   | 'palette.toggle'
+  | 'palette.commands'
+  | 'palette.search'
   | 'settings.open'
+  | 'task.focusNext'
+  | 'task.focusPrev'
   | 'term.splitRight'
   | 'term.splitDown'
+  | 'term.newTab'
+  | 'browser.splitRight'
+  | 'browser.splitDown'
+  | 'pane.closeTab'
   | 'term.closePane'
   | 'term.focusLeft'
   | 'term.focusRight'
@@ -25,16 +33,40 @@ export interface Chord {
 export interface ShortcutDef {
   action: ShortcutAction
   label: string
-  group: 'app' | 'term'
+  group: 'app' | 'task' | 'term'
+  keywords?: string[]
 }
 
 export const SHORTCUT_DEFS: ShortcutDef[] = [
-  { action: 'palette.toggle', label: 'コマンドパレット', group: 'app' },
+  { action: 'palette.toggle', label: '自然言語パレット', group: 'app' },
+  { action: 'palette.commands', label: 'コマンドパレット', group: 'app' },
+  {
+    action: 'palette.search',
+    label: 'タスクを検索',
+    group: 'task',
+    keywords: ['あいまい', 'fuzzy', '検索']
+  },
   { action: 'settings.open', label: '設定を開く', group: 'app' },
   { action: 'workspace.exit', label: 'ワークスペースを閉じる', group: 'app' },
   { action: 'app.minimize', label: 'トレイに退避', group: 'app' },
+  {
+    action: 'task.focusNext',
+    label: '次のタスクへ',
+    group: 'task',
+    keywords: ['切替', '切り替え', 'cycle', 'レール']
+  },
+  {
+    action: 'task.focusPrev',
+    label: '前のタスクへ',
+    group: 'task',
+    keywords: ['切替', '切り替え', 'cycle', 'レール']
+  },
   { action: 'term.splitRight', label: '右に分割', group: 'term' },
   { action: 'term.splitDown', label: '下に分割', group: 'term' },
+  { action: 'term.newTab', label: 'ターミナルタブを追加', group: 'term' },
+  { action: 'browser.splitRight', label: '右にブラウザ', group: 'term' },
+  { action: 'browser.splitDown', label: '下にブラウザ', group: 'term' },
+  { action: 'pane.closeTab', label: 'タブを閉じる', group: 'term' },
   { action: 'term.closePane', label: 'ペインを閉じる', group: 'term' },
   { action: 'term.focusLeft', label: '左のペインへ', group: 'term' },
   { action: 'term.focusRight', label: '右のペインへ', group: 'term' },
@@ -66,11 +98,19 @@ export function defaultKeymap(): Keymap {
   if (isMac) {
     return {
       'palette.toggle': chord('k', { meta: true }),
+      'palette.commands': chord('p', { meta: true, shift: true }),
+      'palette.search': chord('p', { meta: true }),
       'settings.open': chord(',', { meta: true }),
       'workspace.exit': chord('escape', { meta: true }),
       'app.minimize': chord('m', { meta: true }),
+      'task.focusNext': chord('arrowdown', { meta: true, shift: true }),
+      'task.focusPrev': chord('arrowup', { meta: true, shift: true }),
       'term.splitRight': chord('d', { meta: true }),
       'term.splitDown': chord('d', { meta: true, shift: true }),
+      'term.newTab': chord('t', { meta: true }),
+      'browser.splitRight': chord('b', { meta: true }),
+      'browser.splitDown': chord('b', { meta: true, shift: true }),
+      'pane.closeTab': chord('w', { meta: true, alt: true }),
       'term.closePane': chord('w', { meta: true, shift: true }),
       'term.focusLeft': chord('arrowleft', { meta: true, alt: true }),
       'term.focusRight': chord('arrowright', { meta: true, alt: true }),
@@ -83,11 +123,19 @@ export function defaultKeymap(): Keymap {
   }
   return {
     'palette.toggle': chord('k', { ctrl: true }),
+    'palette.commands': chord('p', { ctrl: true, shift: true }),
+    'palette.search': chord('p', { ctrl: true }),
     'settings.open': chord(',', { ctrl: true }),
     'workspace.exit': chord('escape', { ctrl: true }),
     'app.minimize': chord('m', { ctrl: true }),
+    'task.focusNext': chord('arrowdown', { ctrl: true, shift: true }),
+    'task.focusPrev': chord('arrowup', { ctrl: true, shift: true }),
     'term.splitRight': chord('d', { ctrl: true, shift: true }),
     'term.splitDown': chord('\\', { ctrl: true, shift: true }),
+    'term.newTab': chord('t', { ctrl: true }),
+    'browser.splitRight': chord('b', { ctrl: true }),
+    'browser.splitDown': chord('b', { ctrl: true, shift: true }),
+    'pane.closeTab': chord('w', { ctrl: true, alt: true }),
     'term.closePane': chord('w', { ctrl: true, shift: true }),
     'term.focusLeft': chord('arrowleft', { ctrl: true, alt: true }),
     'term.focusRight': chord('arrowright', { ctrl: true, alt: true }),
@@ -134,7 +182,11 @@ export function eventToChord(e: KeyboardEvent): Chord {
 export function chordsEqual(a: Chord | null | undefined, b: Chord | null | undefined): boolean {
   if (!a || !b) return a === b
   return (
-    a.key === b.key && a.ctrl === b.ctrl && a.shift === b.shift && a.alt === b.alt && a.meta === b.meta
+    a.key === b.key &&
+    a.ctrl === b.ctrl &&
+    a.shift === b.shift &&
+    a.alt === b.alt &&
+    a.meta === b.meta
   )
 }
 
@@ -198,6 +250,7 @@ export function conflictingActions(map: Keymap, action: ShortcutAction): Shortcu
 export function isTypingTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false
   if (target.closest('.xterm')) return false
+  if (target.closest('.browser-url')) return false
   const tag = target.tagName
   if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true
   return target.isContentEditable

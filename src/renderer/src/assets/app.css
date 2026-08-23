@@ -13,8 +13,7 @@
   --idle: #6a7390;
   --shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
   --mono: ui-monospace, 'Cascadia Code', 'SF Mono', Menlo, Consolas, monospace;
-  --sans:
-    'Segoe UI', 'Hiragino Sans', 'Noto Sans JP', Inter, system-ui, sans-serif;
+  --sans: 'Segoe UI', 'Hiragino Sans', 'Noto Sans JP', Inter, system-ui, sans-serif;
 }
 
 * {
@@ -84,8 +83,7 @@ button {
   justify-content: center;
   gap: 18px;
   background:
-    radial-gradient(1200px 400px at 50% -10%, rgba(212, 165, 116, 0.12), transparent 55%),
-    var(--bg);
+    radial-gradient(1200px 400px at 50% -10%, rgba(212, 165, 116, 0.12), transparent 55%), var(--bg);
 }
 
 .launcher h1 {
@@ -160,12 +158,23 @@ button {
 
 .task-list {
   overflow: auto;
+  overflow-anchor: none;
   padding: 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
   flex: 1;
   min-height: 0;
+  position: relative;
+}
+
+.task-list-space {
+  position: relative;
+  width: 100%;
+}
+
+.task-list-row {
+  position: absolute;
+  left: 0;
+  right: 0;
+  padding-bottom: 4px;
 }
 
 .task-card {
@@ -269,8 +278,9 @@ button {
 .pane-work-head {
   display: flex;
   gap: 8px;
-  align-items: flex-start;
+  align-items: center;
   width: 100%;
+  min-width: 0;
   text-align: left;
   border: 0;
   background: transparent;
@@ -293,33 +303,9 @@ button {
   font-weight: 500;
   line-height: 1.35;
   min-width: 0;
-}
-
-.pane-work-items {
-  list-style: none;
-  margin: 2px 0 0 16px;
-  padding: 0;
-  display: grid;
-  gap: 2px;
-}
-
-.pane-work-items li {
-  font-size: 11px;
-  line-height: 1.4;
-  color: var(--muted);
-  padding-left: 10px;
-  position: relative;
-}
-
-.pane-work-items li::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 0.55em;
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: var(--accent-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .rail-foot {
@@ -542,15 +528,131 @@ body.sash-dragging .split-sash-vertical * {
   border-bottom-color: var(--accent-dim);
 }
 
+.pane-tabs {
+  display: flex;
+  align-items: stretch;
+  flex: 0 0 auto;
+  min-height: 22px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  background: #0c0d10;
+  border-bottom: 1px solid var(--line);
+}
+
+.pane-tab {
+  flex: 0 0 auto;
+  max-width: 140px;
+  padding: 3px 10px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pane-tab.active {
+  color: var(--text);
+  background: #101218;
+}
+
+.pane-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+.browser-url {
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12px;
+  outline: none;
+}
+
+.url-omnibox {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.url-suggest {
+  list-style: none;
+  margin: 6px -12px -8px;
+  padding: 0;
+  max-height: 220px;
+  overflow-y: auto;
+  border-top: 1px solid var(--line);
+}
+
+.url-suggest button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  padding: 6px 12px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12px;
+  text-align: left;
+}
+
+.url-suggest button.active,
+.url-suggest button:hover {
+  background: #1a1d26;
+}
+
+.url-suggest .item-sub {
+  color: var(--muted);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.browser-host {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  background: #0e1016;
+}
+
+.pane-body .term-host[hidden],
+.pane-body .browser-host[hidden] {
+  display: none !important;
+}
+
 .term-bar {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
   padding: 8px 12px;
   border-bottom: 1px solid var(--line);
   background: #101218;
   flex: 0 0 auto;
+}
+
+.term-bar-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
 }
 
 .term-bar .path {
@@ -565,6 +667,13 @@ body.sash-dragging .split-sash-vertical * {
 .term-bar .git {
   color: var(--accent);
   margin-right: 8px;
+}
+
+.term-bar .hint {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .term-host {

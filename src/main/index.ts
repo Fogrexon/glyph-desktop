@@ -10,10 +10,13 @@ import {
   warmSession
 } from './terminals'
 import { createAppTray, destroyAppTray } from './tray'
+import { disposeAllBrowsers } from './browser-views'
 import { createLauncherWindow, focusExistingWindow, sendToWorkspace } from './windows'
 import { ensureGlyphSelfTask, listTaskViews } from './tasks'
 import { Ipc } from '@shared/ipc'
 import { markAppQuitting } from './lifetime'
+import { warmupTitleEngine } from './llm/local-title'
+import { loadSettings } from './settings'
 
 const gotLock = app.requestSingleInstanceLock()
 if (!gotLock) {
@@ -60,6 +63,7 @@ app.whenReady().then(async () => {
   createAppTray()
   createLauncherWindow()
   void warmTerminals()
+  if (loadSettings().titleMode === 'local') warmupTitleEngine()
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -76,6 +80,7 @@ app.on('before-quit', () => {
   persistNow()
   persistPaneCwdsNow()
   disposeAllSessions()
+  disposeAllBrowsers()
   destroyAppTray()
 })
 

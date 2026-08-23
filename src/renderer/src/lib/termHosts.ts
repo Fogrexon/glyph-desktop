@@ -11,6 +11,7 @@ interface TermRuntime {
   restoring: Set<string>
   pendingLive: Map<string, string[]>
   restoreChain: Map<string, Promise<void>>
+  hydrated: Set<string>
   offLive: (() => void) | null
 }
 
@@ -24,11 +25,13 @@ function runtime(): TermRuntime {
       restoring: new Set(),
       pendingLive: new Map(),
       restoreChain: new Map(),
+      hydrated: new Set(),
       offLive: null
     }
   }
   const current = glyphWindow.__glyphTerms
   if (!current.restoreChain) current.restoreChain = new Map()
+  if (!current.hydrated) current.hydrated = new Set(current.hosts.keys())
   return current
 }
 
@@ -54,6 +57,8 @@ export function disposeTermHost(paneId: string): void {
   const host = r.hosts.get(paneId)
   r.restoring.delete(paneId)
   r.pendingLive.delete(paneId)
+  r.hydrated.delete(paneId)
+  r.restoreChain.delete(paneId)
   if (!host) return
   try {
     host.term.dispose()
@@ -104,16 +109,14 @@ export function attachTermHost(paneId: string, container: HTMLElement): TermHost
   const existing = runtime().hosts.get(paneId)
   if (existing) {
     const el = existing.term.element
-    if (el && !el.isConnected) {
-      disposeTermHost(paneId)
-    } else if (el) {
+    if (el) {
       detachOtherXterms(container, el)
       if (el.parentElement !== container) container.appendChild(el)
       return existing
-    } else {
-      disposeTermHost(paneId)
     }
+    disposeTermHost(paneId)
   }
+  runtime().hydrated.delete(paneId)
   return createHost(paneId, container)
 }
 
@@ -155,12 +158,43 @@ function frames(count: number): Promise<void> {
   })
 }
 
-async function restoreOnce(paneId: string): Promise<void> {
+function refreshViewport(host: TermHost): void {
+  const rows = host.term.rows
+  if (rows <= 0) return
+  host.term.refresh(0, rows - 1)
+}
+
+export function refreshTermViewport(paneId: string): void {
+  const host = runtime().hosts.get(paneId)
+  if (!host) return
+  try {
+    refreshViewport(host)
+  } catch {
+    // ignore
+  }
+}
+
+async function restoreOnce(paneId: string, force: boolean): Promise<void> {
   bindLiveData()
   const host = runtime().hosts.get(paneId)
   if (!host) return
   const r = runtime()
+  if (!force && r.hydrated.has(paneId)) {
+    try {
+      host.fit.fit()
+    } catch {
+      // container may still be 0-sized
+    }
+    try {
+      refreshViewport(host)
+    } catch {
+      // ignore
+    }
+    return
+  }
   r.restoring.add(paneId)
+  const screen = host.term.element
+  if (screen) screen.style.visibility = 'hidden'
   try {
     await frames(2)
     if (runtime().hosts.get(paneId) !== host) return
@@ -195,17 +229,25 @@ async function restoreOnce(paneId: string): Promise<void> {
     } catch {
       // ignore
     }
+    r.hydrated.add(paneId)
   } finally {
+    if (screen) screen.style.visibility = ''
+    try {
+      refreshViewport(host)
+    } catch {
+      // ignore
+    }
     r.restoring.delete(paneId)
   }
 }
 
-/** Paint PTY backlog into the xterm. Safe to call on every remount / reload. */
-export function restoreTermOutput(paneId: string): Promise<void> {
+/** Paint PTY backlog into a new xterm. No-op if this host already has the buffer. */
+export function restoreTermOutput(paneId: string, force = false): Promise<void> {
   const r = runtime()
+  if (force) r.hydrated.delete(paneId)
   const next = (r.restoreChain.get(paneId) ?? Promise.resolve())
     .catch(() => undefined)
-    .then(() => restoreOnce(paneId))
+    .then(() => restoreOnce(paneId, force))
   r.restoreChain.set(paneId, next)
   return next
 }
@@ -231,13 +273,6 @@ export function fitAndResize(paneId: string): void {
 export function relayoutTermHosts(): void {
   for (const paneId of [...runtime().hosts.keys()]) {
     fitAndResize(paneId)
-    const host = runtime().hosts.get(paneId)
-    const rows = host?.term.rows ?? 0
-    if (!host || rows <= 0) continue
-    try {
-      host.term.refresh(0, rows - 1)
-    } catch {
-      // ignore
-    }
+    refreshTermViewport(paneId)
   }
 }

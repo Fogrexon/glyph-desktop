@@ -5,6 +5,9 @@ import { join } from 'path'
 /** 実行基盤はアプリ同梱。重みは初回だけ userData に取る（インストーラを肥大化させない）。 */
 const MODEL_ID = 'onnx-community/Qwen2.5-0.5B-Instruct'
 
+/** Node / Electron では wasm は使えない。onnxruntime-node は cpu / coreml / webgpu。 */
+const DEVICE = 'cpu'
+
 export interface TitleEngineStatus {
   ready: boolean
   loading: boolean
@@ -31,6 +34,10 @@ export function titleEngineStatus(): TitleEngineStatus {
   }
 }
 
+export function warmupTitleEngine(): void {
+  void ensureGenerator().catch(() => undefined)
+}
+
 export async function generateLocalTitle(excerpt: string): Promise<string | null> {
   const pipe = await ensureGenerator()
   const output = await pipe(
@@ -38,11 +45,11 @@ export async function generateLocalTitle(excerpt: string): Promise<string | null
       {
         role: 'system',
         content:
-          '端末ログから作業タイトルを1行で返す。日本語。12〜28文字。句点・引用符・接頭辞なし。コマンド名の羅列は禁止。'
+          '作業全体を表す日本語タイトルを1行だけ返す。ユーザーが達成しようとしていることに注目し、直近の1ファイルや1コマンドに引っ張られない。これまでのタイトルがまだ依頼全体を表すならそれをそのまま返す。12〜28文字。句点・引用符・接頭辞なし。ツール名・パスの羅列は禁止。良い例: 設定を左レールの専用タブへ移す。悪い例: ui.ts を編集 / Read SettingsPage.tsx。'
       },
-      { role: 'user', content: excerpt.slice(0, 2500) }
+      { role: 'user', content: excerpt.slice(0, 1800) }
     ],
-    { max_new_tokens: 40, do_sample: false }
+    { max_new_tokens: 28, do_sample: false }
   )
   const text = lastAssistantText(output[0]?.generated_text)
   return text || null
@@ -51,11 +58,13 @@ export async function generateLocalTitle(excerpt: string): Promise<string | null
 async function ensureGenerator(): Promise<Generator> {
   if (generator) return generator
   if (loading) return loading
+  lastError = null
+  message = 'モデルを準備しています…'
   loading = loadGenerator()
   try {
     generator = await loading
     lastError = null
-    message = '内蔵 Qwen2.5 0.5B'
+    message = '内蔵 Qwen2.5 0.5B（CPU）'
     return generator
   } catch (error) {
     lastError = error instanceof Error ? error.message : String(error)
@@ -66,7 +75,6 @@ async function ensureGenerator(): Promise<Generator> {
 }
 
 async function loadGenerator(): Promise<Generator> {
-  message = 'モデルを準備しています…'
   const { env, pipeline } = await import('@huggingface/transformers')
   const cacheDir = join(app.getPath('userData'), 'hf-cache')
   mkdirSync(cacheDir, { recursive: true })
@@ -76,7 +84,7 @@ async function loadGenerator(): Promise<Generator> {
 
   const pipe = await pipeline('text-generation', MODEL_ID, {
     dtype: 'q4',
-    device: 'wasm',
+    device: DEVICE,
     progress_callback: (status: { status?: string; file?: string; progress?: number }) => {
       if (status.status === 'progress' && typeof status.progress === 'number') {
         message = `取得中 ${Math.round(status.progress)}%`

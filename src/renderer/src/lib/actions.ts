@@ -3,13 +3,30 @@ import {
   isModifierKey,
   isTypingTarget,
   matchAction,
+  mergeKeymap,
   type ShortcutAction
 } from '@renderer/lib/keymap'
 import { RECOVER_EVENT } from '@renderer/lib/recoverWorkspace'
 import { useKeymap } from '@renderer/stores/keymap'
-import { usePanes } from '@renderer/stores/panes'
+import { usePanes, activeTabForTask } from '@renderer/stores/panes'
 import { restoreTermOutput } from '@renderer/lib/termHosts'
-import { useUi } from '@renderer/stores/ui'
+import { useUi, type PaletteIntent } from '@renderer/stores/ui'
+import { cycleSelectedTask } from '@renderer/lib/workspaceOps'
+
+function togglePalette(intent: PaletteIntent): void {
+  window.dispatchEvent(new Event(RECOVER_EVENT))
+  const ui = useUi.getState()
+  const current = ui.paletteIntent ?? 'nl'
+  if (ui.paletteOpen && ui.paletteView === 'root' && current === intent) {
+    ui.setPaletteOpen(false)
+    return
+  }
+  useUi.setState({
+    paletteOpen: true,
+    paletteView: 'root',
+    paletteIntent: intent
+  })
+}
 
 export function runShortcutAction(action: ShortcutAction): void {
   const ui = useUi.getState()
@@ -18,12 +35,13 @@ export function runShortcutAction(action: ShortcutAction): void {
 
   switch (action) {
     case 'palette.toggle':
-      window.dispatchEvent(new Event(RECOVER_EVENT))
-      if (!ui.paletteOpen || ui.paletteView !== 'root') {
-        ui.setPaletteView('root')
-        return
-      }
-      ui.setPaletteOpen(false)
+      togglePalette('nl')
+      return
+    case 'palette.commands':
+      togglePalette('command')
+      return
+    case 'palette.search':
+      togglePalette('search')
       return
     case 'settings.open':
       ui.openSettings('general')
@@ -34,6 +52,12 @@ export function runShortcutAction(action: ShortcutAction): void {
     case 'app.minimize':
       void window.glyph.window.minimize()
       return
+    case 'task.focusNext':
+      cycleSelectedTask(1)
+      return
+    case 'task.focusPrev':
+      cycleSelectedTask(-1)
+      return
     case 'term.splitRight':
       if (!taskId) return
       panes.splitActive(taskId, 'horizontal')
@@ -41,6 +65,24 @@ export function runShortcutAction(action: ShortcutAction): void {
     case 'term.splitDown':
       if (!taskId) return
       panes.splitActive(taskId, 'vertical')
+      return
+    case 'term.newTab':
+      if (!taskId) return
+      panes.addTab(taskId, 'terminal')
+      return
+    case 'browser.splitRight':
+      if (!taskId) return
+      panes.splitActive(taskId, 'horizontal', 'browser', 'about:blank')
+      return
+    case 'browser.splitDown':
+      if (!taskId) return
+      panes.splitActive(taskId, 'vertical', 'browser', 'about:blank')
+      return
+    case 'pane.closeTab':
+      if (!taskId) return
+      if (!panes.closeActiveTab(taskId)) {
+        ui.pushToast({ text: '最後のペインは閉じられません', kind: 'info' })
+      }
       return
     case 'term.closePane':
       if (!taskId) return
@@ -68,8 +110,13 @@ export function runShortcutAction(action: ShortcutAction): void {
       return
     case 'term.restart': {
       if (!taskId) return
-      const paneId = panes.activePane[taskId] ?? taskId
-      void window.glyph.terminals.restart(paneId).then(() => restoreTermOutput(paneId))
+      const tab = activeTabForTask(taskId)
+      const paneId = tab?.kind === 'terminal' ? tab.id : null
+      if (!paneId) {
+        ui.pushToast({ text: 'ターミナルタブを選んでください', kind: 'info' })
+        return
+      }
+      void window.glyph.terminals.restart(paneId).then(() => restoreTermOutput(paneId, true))
       return
     }
     default:
@@ -93,9 +140,15 @@ export function handleGlobalKeydown(e: KeyboardEvent): void {
     return
   }
 
-  const action = matchAction(eventToChord(e), keymap.map)
+  const action = matchAction(eventToChord(e), mergeKeymap(keymap.map))
   if (!action) return
-  if (isTypingTarget(e.target) && action !== 'palette.toggle' && action !== 'settings.open') {
+  if (
+    isTypingTarget(e.target) &&
+    action !== 'palette.toggle' &&
+    action !== 'palette.commands' &&
+    action !== 'palette.search' &&
+    action !== 'settings.open'
+  ) {
     return
   }
 

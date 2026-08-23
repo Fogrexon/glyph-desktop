@@ -23,6 +23,7 @@ function persistSelectedTaskId(selectedTaskId: string | null): void {
 }
 
 export type PaletteView = 'root' | 'task-new'
+export type PaletteIntent = 'nl' | 'command' | 'search'
 export type WorkspaceSurface = 'task' | 'settings'
 export type SettingsSection = 'general' | 'shortcuts'
 
@@ -35,6 +36,7 @@ export interface Toast {
 interface UiState {
   paletteOpen: boolean
   paletteView: PaletteView
+  paletteIntent: PaletteIntent
   workspaceSurface: WorkspaceSurface
   settingsSection: SettingsSection
   viewMode: TaskViewMode
@@ -61,6 +63,7 @@ function createUiStore() {
   return create<UiState>((set) => ({
     paletteOpen: false,
     paletteView: 'root',
+    paletteIntent: 'nl',
     workspaceSurface: 'task',
     settingsSection: 'general',
     viewMode: 'now',
@@ -70,7 +73,11 @@ function createUiStore() {
     toasts: [],
     sessions: {},
     setPaletteOpen: (paletteOpen) =>
-      set(paletteOpen ? { paletteOpen: true } : { paletteOpen: false, paletteView: 'root' }),
+      set(
+        paletteOpen
+          ? { paletteOpen: true }
+          : { paletteOpen: false, paletteView: 'root', paletteIntent: 'nl' }
+      ),
     setPaletteView: (paletteView) => set({ paletteView, paletteOpen: true }),
     openSettings: (section = 'general') =>
       set({

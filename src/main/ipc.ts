@@ -3,13 +3,14 @@ import { Ipc } from '@shared/ipc'
 import type {
   AgentContext,
   AppSettings,
+  BrowserBounds,
   CreateMilestoneInput,
   CreateTaskInput,
   TaskViewMode,
   UpdateTaskInput
 } from '@shared/types'
 import { resetWorkspaceAgent, runWorkspaceAgent, testMcpConfig } from './agent'
-import { titleEngineStatus } from './llm/local-title'
+import { titleEngineStatus, warmupTitleEngine } from './llm/local-title'
 import { loadSettings, patchSettings } from './settings'
 import {
   addMilestone,
@@ -31,6 +32,14 @@ import {
   restartSession,
   writeSession
 } from './terminals'
+import {
+  destroyBrowser,
+  ensureBrowser,
+  hideAllBrowsers,
+  loadBrowser,
+  setBrowserBounds,
+  setBrowserVisible
+} from './browser-views'
 import { retreatToTray } from './tray'
 import { enterWorkspace, exitWorkspace, getLauncher, getWorkspace, minimizeApp } from './windows'
 
@@ -101,10 +110,33 @@ export function registerIpc(): void {
   })
 
   ipcMain.handle(Ipc.settingsGet, () => loadSettings())
-  ipcMain.handle(Ipc.settingsSet, (_e, patch: Partial<AppSettings>) => patchSettings(patch))
+  ipcMain.handle(Ipc.settingsSet, (_e, patch: Partial<AppSettings>) => {
+    const next = patchSettings(patch)
+    if (next.titleMode === 'local') warmupTitleEngine()
+    return next
+  })
   ipcMain.handle(Ipc.mcpTest, (_e, json?: string) => {
     const text = json ?? loadSettings().mcpServersJson
     return testMcpConfig(text)
   })
   ipcMain.handle(Ipc.titleEngineStatus, () => titleEngineStatus())
+
+  ipcMain.handle(Ipc.browserEnsure, (_e, tabId: string, url: string) => {
+    ensureBrowser(tabId, url)
+  })
+  ipcMain.handle(Ipc.browserLoad, (_e, tabId: string, url: string) => {
+    loadBrowser(tabId, url)
+  })
+  ipcMain.handle(Ipc.browserBounds, (_e, tabId: string, bounds: BrowserBounds) => {
+    setBrowserBounds(tabId, bounds)
+  })
+  ipcMain.handle(Ipc.browserVisible, (_e, tabId: string, visible: boolean) => {
+    setBrowserVisible(tabId, visible)
+  })
+  ipcMain.handle(Ipc.browserHideAll, () => {
+    hideAllBrowsers()
+  })
+  ipcMain.handle(Ipc.browserDestroy, (_e, tabId: string) => {
+    destroyBrowser(tabId)
+  })
 }

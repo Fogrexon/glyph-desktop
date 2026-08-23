@@ -31,24 +31,38 @@ interface KeymapState {
   cancelRecording: () => void
 }
 
-export const useKeymap = create<KeymapState>((set, get) => ({
-  map: loadMap(),
-  recording: null,
-  setChord: (action, chord) => {
-    const map = { ...get().map, [action]: chord }
-    persist(map)
-    set({ map, recording: null })
-  },
-  resetAction: (action) => {
-    const map = { ...get().map, [action]: defaultKeymap()[action] }
-    persist(map)
-    set({ map, recording: null })
-  },
-  resetAll: () => {
-    const map = defaultKeymap()
-    persist(map)
-    set({ map, recording: null })
-  },
-  startRecording: (action) => set({ recording: action }),
-  cancelRecording: () => set({ recording: null })
-}))
+function createKeymapStore() {
+  return create<KeymapState>((set, get) => ({
+    map: loadMap(),
+    recording: null,
+    setChord: (action, chord) => {
+      const map = { ...get().map, [action]: chord }
+      persist(map)
+      set({ map, recording: null })
+    },
+    resetAction: (action) => {
+      const map = { ...get().map, [action]: defaultKeymap()[action] }
+      persist(map)
+      set({ map, recording: null })
+    },
+    resetAll: () => {
+      const map = defaultKeymap()
+      persist(map)
+      set({ map, recording: null })
+    },
+    startRecording: (action) => set({ recording: action }),
+    cancelRecording: () => set({ recording: null })
+  }))
+}
+
+const glyphWindow = window as Window & {
+  __glyphKeymapStore?: ReturnType<typeof createKeymapStore>
+}
+export const useKeymap = glyphWindow.__glyphKeymapStore ?? createKeymapStore()
+glyphWindow.__glyphKeymapStore = useKeymap
+
+{
+  const merged = mergeKeymap(useKeymap.getState().map)
+  persist(merged)
+  useKeymap.setState({ map: merged })
+}

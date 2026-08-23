@@ -424,6 +424,9 @@ async function executeTool(
     case 'restart_terminal': {
       const paneId = paneIdOf(ctx, args.paneId)
       if (!paneId) return JSON.stringify({ error: 'no pane selected' })
+      if (paneId.includes('::b::')) {
+        return JSON.stringify({ error: 'browser tab selected' })
+      }
       const info = restartSession(paneId)
       pushAction(ctx, { type: 'closePalette' }, emit)
       return JSON.stringify({ ok: true, paneId, cwd: info.cwd })

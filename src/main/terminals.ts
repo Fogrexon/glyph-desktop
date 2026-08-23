@@ -128,18 +128,29 @@ function spawnPty(paneId: string): Session {
     session.status = detectStatus(data, session.status, Date.now(), session.alive)
     emitStatus(session)
     onData?.(session.paneId, data)
-    scheduleWorkTitle(session.paneId, session.outputBuffer, (title) => {
-      const current = sessions.get(session.paneId)
-      if (!current?.alive) return
-      if (current.llmTitle === title) return
-      current.llmTitle = title
-      emitStatus(current)
-    })
+    scheduleWorkTitle(
+      {
+        paneId: session.paneId,
+        taskId: session.taskId,
+        output: () => sessions.get(session.paneId)?.outputBuffer ?? '',
+        currentTitle: () => sessions.get(session.paneId)?.llmTitle ?? null
+      },
+      (title) => {
+        const current = sessions.get(session.paneId)
+        if (!current?.alive) return
+        if (current.llmTitle === title) return
+        current.llmTitle = title
+        emitStatus(current)
+      }
+    )
   })
 
   pty.onExit(({ exitCode }) => {
     session.alive = false
     session.status = { status: 'exited', lastOutputAt: session.status.lastOutputAt }
+    session.llmTitle = null
+    session.activity = { ...EMPTY_ACTIVITY }
+    cancelWorkTitle(session.paneId)
     emitStatus(session)
     onExit?.(session.paneId, exitCode)
   })
@@ -321,8 +332,7 @@ export function startIdleWatcher(): void {
         }
         session.activity = {
           ...session.activity,
-          activity: label,
-          workTitle: session.activity.workTitle || label
+          activity: label
         }
         emitStatus(session)
       })

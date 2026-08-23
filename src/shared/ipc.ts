@@ -34,5 +34,16 @@ export const Ipc = {
   settingsGet: 'settings:get',
   settingsSet: 'settings:set',
   mcpTest: 'settings:mcp-test',
-  titleEngineStatus: 'settings:title-engine'
+  titleEngineStatus: 'settings:title-engine',
+
+  browserEnsure: 'browser:ensure',
+  browserLoad: 'browser:load',
+  browserBounds: 'browser:bounds',
+  browserVisible: 'browser:visible',
+  browserHideAll: 'browser:hide-all',
+  browserDestroy: 'browser:destroy',
+  browserNavigated: 'browser:navigated',
+  browserTitle: 'browser:title',
+  browserOpenTab: 'browser:open-tab',
+  browserInput: 'browser:input'
 } as const

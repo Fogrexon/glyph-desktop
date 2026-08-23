@@ -98,6 +98,12 @@ const TRIVIAL_CMD =
 const WEAK_TITLE =
   /^(claude|codex|gemini|aider|cursor|opencode|crush|agent|npm|npx|node|python|zsh|bash|fish|sh)$/i
 
+const TOOL_TITLE =
+  /^(Read|Write|Edit|Update|Bash|Grep|Glob|Search|Shell|Task|WebFetch|WebSearch|ApplyPatch|Delete|NotebookEdit)\b/i
+
+const BIN_TITLE =
+  /^(git|npm|npx|pnpm|yarn|bun|python3?|node|cargo|go|make|docker|kubectl|ssh|brew|tsc|eslint|vitest|jest|pytest)\s/i
+
 const SKIP_LINE = /esc to interrupt|ctrl\+c|press ctrl|^\s*[│├└⎿]/i
 
 export interface ExtractedWork {
@@ -307,31 +313,60 @@ export function mergeActivitySnapshot(input: {
 
   const recent = extractRecentWork(input.recentText)
   const todoItems = unique([...extracted.active, ...extracted.pending]).slice(0, 8)
-  const commandTitle = nontrivialCommand(lastCommand)
-
   const workItems = todoItems.length > 0 ? todoItems : recent
-  const workTitle =
-    phrase(
-      extracted.active[0] ||
-        extracted.pending[0] ||
-        recent[0] ||
-        commandTitle ||
-        (activity && !WEAK_TITLE.test(activity) ? activity : null),
-      48
-    ) || activity
+  const workTitle = phrase(titleHintsFrom(extracted, recent)[0] ?? null, 48)
 
   return { activity, workTitle, workItems, lastCommand }
+}
+
+export const TITLE_HINT_LIMIT = 12
+
+export interface TitleBrief {
+  /** 最初の依頼と、方針が変わったときの直近依頼 */
+  intents: string[]
+  todos: string[]
+  /** 触っているファイル名（タイトルそのものには使わない） */
+  areas: string[]
+}
+
+/**
+ * 生ログを読ませず、大局の種だけにする。
+ * 依頼は最大 80KB 遡って古い順。Todo はエージェントの計画。場所はファイル名だけ。
+ */
+export function buildTitleBrief(raw: string): TitleBrief | null {
+  const intents = extractUserIntents(raw)
+  const extracted = extractAgentTasksFromText(raw)
+  const todos = unique([...extracted.active, ...extracted.pending]).slice(0, 6)
+  const areas = extractTouchedAreas(raw)
+  if (intents.length === 0 && todos.length === 0) return null
+  return { intents, todos, areas }
+}
+
+/** タイトル用。Todo とユーザー指示だけ。実行コマンド・ツール呼び出しは入れない。 */
+export function extractTitleHints(raw: string, limit = TITLE_HINT_LIMIT): string[] {
+  const extracted = extractAgentTasksFromText(raw)
+  return titleHintsFrom(extracted, extractRecentWork(raw, 16)).slice(0, limit)
+}
+
+function titleHintsFrom(extracted: ExtractedWork, recent: string[]): string[] {
+  return unique(
+    [...extracted.active, ...extracted.pending, ...recent.filter((item) => !isCommandLikeTitle(item))]
+  )
+}
+
+/** ツール呼び出しやシェルコマンドそのものをタイトルにしない */
+export function isCommandLikeTitle(text: string): boolean {
+  const t = text.trim()
+  if (!t) return true
+  if (TRIVIAL_CMD.test(t) || WEAK_TITLE.test(t)) return true
+  if (TOOL_TITLE.test(t) || BIN_TITLE.test(t)) return true
+  if (/^[A-Za-z0-9_./-]+\.[A-Za-z]{1,8}$/.test(t)) return true
+  return false
 }
 
 export function labelFromProcessCommand(commandLine: string | null | undefined): string | null {
   if (!commandLine) return null
   return shortActivityLabel(commandLine)
-}
-
-function nontrivialCommand(command: string | null | undefined): string | null {
-  const described = describeCommand(command)
-  if (!described || TRIVIAL_CMD.test(described) || WEAK_TITLE.test(described)) return null
-  return described
 }
 
 function classifyWorkLine(raw: string): string | null {
@@ -365,14 +400,71 @@ function classifyWorkLine(raw: string): string | null {
   return null
 }
 
+function extractUserIntents(raw: string): string[] {
+  const text = tailText(stripAnsi(raw), 80_000)
+  const found: string[] = []
+  const seen = new Set<string>()
+  for (const line of text.split(/\r?\n/)) {
+    const prompt = asUserPrompt(line)
+    if (!prompt || isCommandLikeTitle(prompt) || seen.has(prompt)) continue
+    seen.add(prompt)
+    found.push(prompt)
+  }
+  if (found.length <= 3) return found
+  const last = found[found.length - 1]
+  const head = found.slice(0, 2)
+  return last && !head.includes(last) ? [...head, last] : head
+}
+
+function extractTouchedAreas(raw: string): string[] {
+  const text = tailText(stripAnsi(raw), 40_000)
+  const lines = text.split(/\r?\n/)
+  const areas: string[] = []
+  const seen = new Set<string>()
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const name = areaFromWorkLine(lines[i] ?? '')
+    if (!name || seen.has(name)) continue
+    seen.add(name)
+    areas.push(name)
+    if (areas.length >= 8) break
+  }
+  return areas
+}
+
+function areaFromWorkLine(line: string): string | null {
+  const tool = line.match(TOOL_LINE_RE) ?? line.match(BARE_TOOL_RE)
+  if (tool) {
+    const name = canonicalTool(tool[1])
+    if (name === 'Bash' || name === 'Shell' || name === 'Grep' || name === 'Glob') return null
+    if (name === 'WebSearch' || name === 'WebFetch' || name === 'Task') return null
+    return areaName(tool[2])
+  }
+  const fileOp = line.match(FILE_OP_RE)
+  if (fileOp) return areaName(fileOp[1])
+  const git = line.match(GIT_DIFF_RE)
+  if (git) return areaName(git[1])
+  return null
+}
+
+function areaName(raw: string): string | null {
+  let arg = raw.trim().replace(/^["']|["']$/g, '')
+  const named = arg.match(/(?:path|file)\s*[:=]\s*["']?([^"',]+)/i)
+  if (named) arg = named[1].trim()
+  const base = arg.replace(/\\/g, '/').split('/').filter(Boolean).pop()
+  if (!base || /node_modules|package-lock|^[.]/.test(base)) return null
+  return base.replace(/\.(tsx?|jsx?|mjs|cjs|py|rs|go|md|css)$/i, '') || null
+}
+
 function asUserPrompt(line: string): string | null {
-  const match = line.match(/^\s*(?:[❯➤]|>(?=\s+\S+\s+\S))\s+(.+)$/)
+  const match =
+    line.match(/^\s*(?:[❯➤]|>(?=\s+\S+\s+\S))\s+(.+)$/) ??
+    line.match(/^\s*(?:user|human|you)[:：]\s+(.+)$/i)
   if (!match) return null
   const text = match[1].trim()
   if (text.length < 12) return null
   if (TRIVIAL_CMD.test(text)) return null
   if (/^[\w./-]+\s*(?:[<>|&]|$)/.test(text) && text.length < 40) return null
-  return phrase(text, 72)
+  return phrase(text, 80)
 }
 
 function formatTool(tool: string, rawArg: string): string | null {
@@ -408,15 +500,6 @@ function shortPath(input: string): string {
 
 function tailText(text: string, maxChars: number): string {
   return text.length <= maxChars ? text : text.slice(-maxChars)
-}
-
-function describeCommand(command: string | null | undefined): string | null {
-  if (!command) return null
-  let line = command.trim()
-  if (!line) return null
-  line = line.replace(/^(?:\w+=\S+\s+)+/, '')
-  line = line.split(/\s*(?:&&|\|\||;)\s*/)[0]?.trim() ?? line
-  return phrase(line, 48)
 }
 
 function phrase(text: string | null | undefined, max: number): string | null {

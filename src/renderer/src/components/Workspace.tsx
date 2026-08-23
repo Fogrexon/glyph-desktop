@@ -5,13 +5,15 @@ import { SettingsPage } from './SettingsPage'
 import { TaskRail } from './TaskRail'
 import { TerminalPane } from './TerminalPane'
 import { Toasts } from './Toasts'
-import { handleGlobalKeydown } from '@renderer/lib/actions'
-import { formatChord } from '@renderer/lib/keymap'
+import { handleGlobalKeydown, runShortcutAction } from '@renderer/lib/actions'
+import { formatChord, matchAction, mergeKeymap } from '@renderer/lib/keymap'
 import { useKeymap } from '@renderer/stores/keymap'
 import { useAgentChat } from '@renderer/stores/agentChat'
 import { useUi } from '@renderer/stores/ui'
+import { usePanes } from '@renderer/stores/panes'
 import { applyWorkspaceAction } from '@renderer/lib/workspaceOps'
 import { GLYPH_SELF_TASK_ID } from '@shared/ids'
+import { recordVisit, setVisitTitle } from '@renderer/lib/browserHistory'
 import { refreshTasks } from '@renderer/stores/workspace'
 
 export function Workspace(): React.JSX.Element {
@@ -22,7 +24,7 @@ export function Workspace(): React.JSX.Element {
   const pushToast = useUi((s) => s.pushToast)
   const upsert = useUi((s) => s.upsertSession)
   const selectTask = useUi((s) => s.selectTask)
-  const keymap = useKeymap((s) => s.map)
+  const keymap = mergeKeymap(useKeymap((s) => s.map))
 
   useEffect(() => {
     void refreshTasks(viewMode).then((tasks) => {
@@ -40,9 +42,41 @@ export function Workspace(): React.JSX.Element {
   }, [upsert])
 
   useEffect(() => {
+    const api = window.glyph.browser
+    if (!api) return
+    const offNav = api.onNavigated(({ tabId, url }) => {
+      usePanes.getState().setTabUrl(tabId, url)
+      recordVisit(url)
+    })
+    const offTitle = api.onTitle?.(({ title, url }) => {
+      setVisitTitle(url, title)
+    })
+    const offOpen = api.onOpenTab(({ openerId, url }) => {
+      usePanes.getState().addBrowserBeside(openerId, url)
+    })
+    const offInput = api.onInput((chord) => {
+      const action = matchAction(chord, useKeymap.getState().map)
+      if (action) runShortcutAction(action)
+    })
+    return () => {
+      offNav()
+      offTitle?.()
+      offOpen()
+      offInput()
+    }
+  }, [])
+
+  useEffect(() => {
     window.addEventListener('keydown', handleGlobalKeydown, true)
     return () => window.removeEventListener('keydown', handleGlobalKeydown, true)
   }, [])
+
+  useEffect(() => {
+    if (!window.glyph.browser) return
+    if (paletteOpen || workspaceSurface === 'settings') {
+      void window.glyph.browser.hideAll()
+    }
+  }, [paletteOpen, workspaceSurface])
 
   useEffect(() => {
     const subscribe = window.glyph.agent?.onEvent
@@ -117,9 +151,9 @@ export function Workspace(): React.JSX.Element {
       <Toasts />
       {!paletteOpen && (
         <div className="hint" style={{ position: 'fixed', bottom: 10, right: 14, zIndex: 5 }}>
-          <kbd>{formatChord(keymap['palette.toggle'])}</kbd> パレット ·{' '}
-          <kbd>{formatChord(keymap['settings.open'])}</kbd> 設定 ·{' '}
-          <kbd>{formatChord(keymap['term.splitRight'])}</kbd> 右分割
+          <kbd>{formatChord(keymap['palette.toggle'])}</kbd> 自然言語 ·{' '}
+          <kbd>{formatChord(keymap['palette.commands'])}</kbd> コマンド ·{' '}
+          <kbd>{formatChord(keymap['palette.search'])}</kbd> 検索
         </div>
       )}
     </>

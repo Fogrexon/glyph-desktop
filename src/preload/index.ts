@@ -3,6 +3,8 @@ import { Ipc } from '@shared/ipc'
 import type {
   AgentContext,
   AppSettings,
+  BrowserBounds,
+  BrowserChord,
   CreateMilestoneInput,
   CreateTaskInput,
   TaskViewMode,
@@ -93,6 +95,45 @@ const api = {
         loading: boolean
         message: string
       }>
+  },
+  browser: {
+    ensure: (tabId: string, url: string) => ipcRenderer.invoke(Ipc.browserEnsure, tabId, url),
+    load: (tabId: string, url: string) => ipcRenderer.invoke(Ipc.browserLoad, tabId, url),
+    setBounds: (tabId: string, bounds: BrowserBounds) =>
+      ipcRenderer.invoke(Ipc.browserBounds, tabId, bounds),
+    setVisible: (tabId: string, visible: boolean) =>
+      ipcRenderer.invoke(Ipc.browserVisible, tabId, visible),
+    hideAll: () => ipcRenderer.invoke(Ipc.browserHideAll),
+    destroy: (tabId: string) => ipcRenderer.invoke(Ipc.browserDestroy, tabId),
+    onNavigated: (cb: (payload: { tabId: string; url: string }) => void) => {
+      const listener = (_: unknown, payload: { tabId: string; url: string }): void => cb(payload)
+      ipcRenderer.on(Ipc.browserNavigated, listener)
+      return (): void => {
+        ipcRenderer.removeListener(Ipc.browserNavigated, listener)
+      }
+    },
+    onTitle: (cb: (payload: { tabId: string; title: string; url: string }) => void) => {
+      const listener = (_: unknown, payload: { tabId: string; title: string; url: string }): void =>
+        cb(payload)
+      ipcRenderer.on(Ipc.browserTitle, listener)
+      return (): void => {
+        ipcRenderer.removeListener(Ipc.browserTitle, listener)
+      }
+    },
+    onOpenTab: (cb: (payload: { openerId: string; url: string }) => void) => {
+      const listener = (_: unknown, payload: { openerId: string; url: string }): void => cb(payload)
+      ipcRenderer.on(Ipc.browserOpenTab, listener)
+      return (): void => {
+        ipcRenderer.removeListener(Ipc.browserOpenTab, listener)
+      }
+    },
+    onInput: (cb: (chord: BrowserChord) => void) => {
+      const listener = (_: unknown, chord: BrowserChord): void => cb(chord)
+      ipcRenderer.on(Ipc.browserInput, listener)
+      return (): void => {
+        ipcRenderer.removeListener(Ipc.browserInput, listener)
+      }
+    }
   }
 }
 

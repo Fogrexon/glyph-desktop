@@ -26,12 +26,36 @@ export const COMMANDS: CommandDef[] = [
     group: 'task'
   },
   {
+    id: 'commands.open',
+    title: 'コマンドを実行',
+    subtitle: '> でコマンド一覧から直呼び',
+    aliases: ['cmd', 'command'],
+    keywords: ['コマンド', '直呼び', 'palette', 'コマンドパレット'],
+    group: 'app'
+  },
+  {
     id: 'search.open',
     title: 'タスク・ターミナルを検索',
     subtitle: '? であいまい検索してジャンプ',
     aliases: ['find', 'goto', 'jump', 'fzf'],
     keywords: ['検索', 'あいまい', 'fuzzy', 'ターミナル', 'タスク', 'cwd'],
     group: 'app'
+  },
+  {
+    id: 'task.next',
+    title: '次のタスク',
+    subtitle: 'レールの次のタスクへ。ペイン切替とは別',
+    aliases: ['tn', 'next-task'],
+    keywords: ['次', 'タスク', '切替', 'next', 'cycle'],
+    group: 'task'
+  },
+  {
+    id: 'task.prev',
+    title: '前のタスク',
+    subtitle: 'レールの前のタスクへ',
+    aliases: ['tp', 'prev-task'],
+    keywords: ['前', 'タスク', '切替', 'prev', 'cycle'],
+    group: 'task'
   },
   {
     id: 'task.complete',
@@ -138,9 +162,49 @@ export const COMMANDS: CommandDef[] = [
     group: 'term'
   },
   {
+    id: 'term.new-tab',
+    title: 'ターミナルタブ',
+    subtitle: '今のペインにターミナルを足す',
+    aliases: ['ntab', 'tab'],
+    keywords: ['タブ', 'ターミナル', 'tab'],
+    group: 'term'
+  },
+  {
+    id: 'browser.split-right',
+    title: '右にブラウザ',
+    subtitle: '右に割ってページを開く',
+    aliases: ['browser', 'br'],
+    keywords: ['ブラウザ', 'browser', 'web', '分割'],
+    group: 'term'
+  },
+  {
+    id: 'browser.split-down',
+    title: '下にブラウザ',
+    subtitle: '下に割ってページを開く',
+    aliases: ['browser-down'],
+    keywords: ['ブラウザ', 'browser', 'web', '分割'],
+    group: 'term'
+  },
+  {
+    id: 'browser.new-tab',
+    title: 'ブラウザタブ',
+    subtitle: '今のペインにページを足す',
+    aliases: ['btab', 'url'],
+    keywords: ['ブラウザ', 'タブ', 'url', 'web'],
+    group: 'term'
+  },
+  {
+    id: 'pane.close-tab',
+    title: 'タブを閉じる',
+    subtitle: '選択中のタブだけ閉じる。最後ならペインも',
+    aliases: ['ctab'],
+    keywords: ['閉じる', 'タブ', 'close', 'tab'],
+    group: 'term'
+  },
+  {
     id: 'term.close-pane',
     title: 'ペインを閉じる',
-    subtitle: '選択中の分割ペインを閉じる',
+    subtitle: '選択中の分割ペインをタブごと閉じる',
     aliases: ['close-pane'],
     keywords: ['閉じる', 'ペイン', 'close', 'pane'],
     group: 'term'

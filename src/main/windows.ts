@@ -1,4 +1,5 @@
 import { BrowserWindow, screen, shell } from 'electron'
+import { bindBrowserHost, hideAllBrowsers } from './browser-views'
 import { join } from 'path'
 import { is } from '@electron-toolkit/utils'
 import { isAppQuitting } from './lifetime'
@@ -84,6 +85,7 @@ export function enterWorkspace(): BrowserWindow {
     workspace.show()
     workspace.focus()
     applyFullscreen(workspace)
+    bindBrowserHost(workspace)
     if (launcher && !launcher.isDestroyed()) launcher.hide()
     return workspace
   }
@@ -126,8 +128,10 @@ export function enterWorkspace(): BrowserWindow {
   })
   guardClose(workspace)
   workspace.on('closed', () => {
+    bindBrowserHost(null)
     workspace = null
   })
+  bindBrowserHost(workspace)
 
   load(workspace, 'workspace')
   if (launcher && !launcher.isDestroyed()) launcher.hide()
@@ -154,6 +158,7 @@ function releaseFullscreen(win: BrowserWindow): void {
 }
 
 function hideWorkspace(): void {
+  hideAllBrowsers()
   if (workspace && !workspace.isDestroyed()) {
     releaseFullscreen(workspace)
     workspace.hide()

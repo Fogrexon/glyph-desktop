@@ -13,6 +13,13 @@ export function sessionsForTask(
     })
 }
 
+export function liveSessionsForTask(
+  sessions: Record<string, TerminalSessionInfo>,
+  taskId: string
+): TerminalSessionInfo[] {
+  return sessionsForTask(sessions, taskId).filter((s) => s.alive && s.status !== 'exited')
+}
+
 export function sessionForPane(
   sessions: Record<string, TerminalSessionInfo>,
   paneId: string | null | undefined
@@ -43,14 +50,16 @@ export function representativeSession(
 }
 
 export function paneWorkTitle(session: TerminalSessionInfo): string | null {
-  return session.workTitle || session.activity
+  if (!session.alive || session.status === 'exited') return null
+  return session.workTitle
 }
 
 export function paneWorkItems(session: TerminalSessionInfo): string[] {
+  if (!session.alive || session.status === 'exited') return []
   const title = paneWorkTitle(session)
   return (session.workItems ?? []).filter((item) => item !== title)
 }
 
 export function paneHasWork(session: TerminalSessionInfo): boolean {
-  return Boolean(paneWorkTitle(session) || (session.workItems && session.workItems.length > 0))
+  return Boolean(paneWorkTitle(session) || paneWorkItems(session).length > 0)
 }
